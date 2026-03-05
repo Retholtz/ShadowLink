@@ -2,7 +2,7 @@ ShadowLink 🎮
 
 A lightweight, standalone background service for remapping the ASUS ROG Raikiri II back paddles.
 
-ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt modifiers) directly to the physical M1, M2, M3, and M4 back paddles of your ROG Raikiri II controller. It runs completely standalone—no Armoury Crate required!
+ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt modifiers) directly to the physical M1, M2, M3, and M4 back paddles of your ROG Raikiri II controller. Armoury Crate is required as it installs the driver (ASCEHIDRemp.sys) needed for the Raikiri back buttons to be identified by Windows.
 
 📥 Download
 
