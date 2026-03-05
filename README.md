@@ -2,7 +2,7 @@ ShadowLink 🎮
 
 A lightweight, standalone background service for remapping the ASUS ROG Raikiri II back paddles.
 
-ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt modifiers) directly to the physical M1, M2, M3, and M4 back paddles of your ROG Raikiri II controller. Armoury Crate is required as it installs the driver (ASCEHIDRemp.sys) needed for the Raikiri back buttons to be identified by Windows.
+ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt modifiers) directly to the physical M1, M2, M3, and M4 back paddles of your ROG Raikiri II controller. The proprietary ASUS driver (ASCEHIDRemp.sys) is required for Windows to identify the Raikiri back buttons, but ShadowLink is designed to run entirely without the Armoury Crate background services.
 
 📥 Download
 
@@ -21,6 +21,39 @@ Because the bundled Java Runtime Environment (JRE) makes the release file too la
      * M4: Bottom Right Paddle
 4. Save & Play: Click "Save & Apply". You can safely leave the window open or minimize it. The background service automatically detects when your controller is plugged in (or swapped to the 2.4GHz dongle) and instantly applies your bindings.
 
+⚙️ Driver Setup & Troubleshooting (Running Without Armoury Crate)
+
+ShadowLink needs the official ASUS USB filter driver (ASCEHIDRemp.sys) to see the raw paddle inputs. Standard Windows generic Xbox drivers will hide these buttons. If your paddles are not being detected, choose one of the methods below to get the driver.
+
+Method 1: The "Install and Disable" Method (Recommended)
+This is the easiest way to get the correct driver while keeping your system resources free.
+
+1. Download and install the official ASUS Armoury Crate software.
+
+2. Plug in your Raikiri II and let Armoury Crate recognize it (this installs the necessary drivers).
+
+3. Open the Windows Services app (press Win+R, type services.msc, and hit Enter).
+
+4. Locate any services starting with "Armoury Crate" or "ASUS" (e.g., Armoury Crate Control Interface). Right-click them, select Properties, and change their Startup Type to Disabled.
+
+5. Restart your PC. The drivers will remain active, but the heavy ASUS software will no longer run or conflict with ShadowLink.
+
+Method 2: The Clean Extraction Method (For Advanced Users)
+If you have another PC (like a laptop) that already has Armoury Crate installed and you want to keep your desktop completely clean:
+
+1. On the PC with Armoury Crate, open Command Prompt as Administrator.
+
+2. Run this command to extract all third-party drivers to a folder on your C: drive: pnputil /export-driver * C:\DriverBackup
+
+3. Open C:\DriverBackup and search for ASCEHIDRemp.sys. Copy the specific folder containing that file to a USB flash drive.
+
+4. Plug the Raikiri II into your clean PC.
+
+5. Open Device Manager, find the controller under "Xbox Peripherals", right-click it, and select Update driver.
+
+6. Choose Browse my computer for drivers, point it to the folder on your USB drive, and let Windows install the standalone ASUS driver.
+
+    *** Note: Windows may not install this driver as it considers the Xbox driver to be the most current. I personally had to extract the drivers and run the acsehidremap.inf file to manually install the drivers ***
 
 🛠️ Building from Source (For Developers)
 
