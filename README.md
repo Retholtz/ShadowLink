@@ -8,7 +8,7 @@ ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt 
 
 Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
 
-👉 [**Download ShadowLink v1.0**](https://drive.google.com/file/d/1Qmj0tP-HqBaZhmTBPB9V5RIm2fdi_ZX6/view?usp=sharing)
+👉 [**Download ShadowLink v1.0**](https://drive.google.com/file/d/1guAuw1Es4s3hO9isoPhrWCSk0tKp7qTg/view?usp=sharing)
 
 
 🚀 How to UseExtract the ZIP file:
@@ -55,7 +55,7 @@ If you have another PC (like a laptop) that already has Armoury Crate installed 
 
 6. Choose Browse my computer for drivers, point it to the folder on your USB drive, and let Windows install the standalone ASUS driver.
 
-    *** Note: Windows may not install this driver as it considers the Xbox driver to be the most current. I personally had to extract the drivers and run the acsehidremap.inf file to manually install the drivers ***
+    *** Note: Windows may not install this driver as it considers the Xbox driver to be the most current. Drivers may need to be reloaded with each reboot with this method. Method 1 is ideal to ensure driver is loaded.***
 
 🛠️ Building from Source (For Developers)
 
