@@ -21,7 +21,6 @@ Because the bundled Java Runtime Environment (JRE) makes the release file too la
      * M3: Top Right Paddle
      * M4: Bottom Right Paddle
 4. Save & Play: Click "Save & Apply". You can safely leave the window open or minimize it. The background service automatically detects when your controller is plugged in (or swapped to the 2.4GHz dongle) and instantly applies your bindings.
-5. Note: The "Hold" function is to tell the program to hold the keypress until the button is released. This is helpful for situtations such as "Push to Talk" for microphone use.
 
 ⚙️ Driver Setup & Troubleshooting (Running Without Armoury Crate)
 
