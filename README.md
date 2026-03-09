@@ -8,7 +8,7 @@ ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt 
 
 Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
 
-👉 [**Download ShadowLink v1.0**](https://drive.google.com/file/d/1guAuw1Es4s3hO9isoPhrWCSk0tKp7qTg/view?usp=sharing)
+👉 [**Download ShadowLink v1.01**](https://drive.google.com/file/d/1KD9Dj40mxgq0qwcCvdnNo4aqo8CM3eOg/view?usp=sharing)
 
 
 🚀 How to UseExtract the ZIP file:
