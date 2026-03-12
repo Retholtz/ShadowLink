@@ -216,59 +216,62 @@ fun setupSystemTray(frame: JFrame) {
 
     val tray = SystemTray.getSystemTray()
 
-    val img = BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB)
+    // Draw a bright blue circular icon with "SL" so it stands out on the Windows taskbar
+    val img = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
     val g = img.createGraphics()
-    g.color = Color.DARK_GRAY
-    g.fillRect(0, 0, 16, 16)
-    g.color = Color.CYAN
-    g.drawRect(1, 1, 13, 13)
+    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+    g.color = Color(0, 120, 215) // Windows Blue
+    g.fillOval(2, 2, 28, 28)
+    g.color = Color.WHITE
+    g.drawOval(2, 2, 28, 28)
+    g.font = Font("Segoe UI", Font.BOLD, 14)
+    g.drawString("SL", 8, 22)
     g.dispose()
 
     val trayIcon = TrayIcon(img, "ShadowLink")
     trayIcon.isImageAutoSize = true
 
     val popup = PopupMenu()
-    val restoreItem = MenuItem("Restore")
-    restoreItem.addActionListener {
+    val openItem = MenuItem("Open ShadowLink")
+    openItem.addActionListener {
         frame.isVisible = true
         frame.state = Frame.NORMAL
-        tray.remove(trayIcon)
     }
     val exitItem = MenuItem("Exit")
     exitItem.addActionListener { System.exit(0) }
 
-    popup.add(restoreItem)
+    popup.add(openItem)
+    popup.addSeparator()
     popup.add(exitItem)
     trayIcon.popupMenu = popup
 
+    // Left-click to open
     trayIcon.addMouseListener(object : MouseAdapter() {
         override fun mouseClicked(e: MouseEvent) {
             if (e.button == MouseEvent.BUTTON1) {
                 frame.isVisible = true
                 frame.state = Frame.NORMAL
-                tray.remove(trayIcon)
             }
         }
     })
 
+    // Add the tray icon ONCE at startup and leave it there
+    try {
+        tray.add(trayIcon)
+    } catch (e: AWTException) {
+        println("Warning: Could not add icon to system tray.")
+    }
+
+    // Intercept the minimize action to hide the window from the taskbar
     frame.addWindowStateListener { e ->
         if (e.newState == Frame.ICONIFIED) {
             frame.isVisible = false
-            try {
-                tray.add(trayIcon)
-            } catch (ex: AWTException) {
-                ex.printStackTrace()
-            }
         }
     }
 
+    // Handle startup visibility based on the saved setting
     if (startMinimized) {
-        try {
-            tray.add(trayIcon)
-            frame.isVisible = false
-        } catch (e: AWTException) {
-            frame.isVisible = true
-        }
+        frame.isVisible = false
     } else {
         frame.isVisible = true
     }
