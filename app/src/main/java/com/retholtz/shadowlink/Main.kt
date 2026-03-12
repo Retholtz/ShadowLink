@@ -216,20 +216,29 @@ fun setupSystemTray(frame: JFrame) {
 
     val tray = SystemTray.getSystemTray()
 
-    // Draw a bright blue circular icon with "SL" so it stands out on the Windows taskbar
-    val img = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
-    val g = img.createGraphics()
-    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-    g.color = Color(0, 120, 215) // Windows Blue
-    g.fillOval(2, 2, 28, 28)
-    g.color = Color.WHITE
-    g.drawOval(2, 2, 28, 28)
-    g.font = Font("Segoe UI", Font.BOLD, 14)
-    g.drawString("SL", 8, 22)
-    g.dispose()
+    // 1. Attempt to load your custom icon.png from the resources folder
+    val iconUrl = object {}.javaClass.getResource("/icon.png")
+
+    val img: Image = if (iconUrl != null) {
+        Toolkit.getDefaultToolkit().getImage(iconUrl)
+    } else {
+        // Fallback: Draw the blue circle if the file is missing
+        println("Warning: icon.png not found in resources. Using fallback icon.")
+        val fallbackImg = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
+        val g = fallbackImg.createGraphics()
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g.color = Color(0, 120, 215)
+        g.fillOval(2, 2, 28, 28)
+        g.color = Color.WHITE
+        g.drawOval(2, 2, 28, 28)
+        g.font = Font("Segoe UI", Font.BOLD, 14)
+        g.drawString("SL", 8, 22)
+        g.dispose()
+        fallbackImg
+    }
 
     val trayIcon = TrayIcon(img, "ShadowLink")
-    trayIcon.isImageAutoSize = true
+    trayIcon.isImageAutoSize = true // This automatically scales your PNG to fit the Windows Tray perfectly
 
     val popup = PopupMenu()
     val openItem = MenuItem("Open ShadowLink")
@@ -255,7 +264,7 @@ fun setupSystemTray(frame: JFrame) {
         }
     })
 
-    // Add the tray icon ONCE at startup and leave it there
+    // Add the tray icon ONCE at startup
     try {
         tray.add(trayIcon)
     } catch (e: AWTException) {
