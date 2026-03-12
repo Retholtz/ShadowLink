@@ -1,31 +1,34 @@
 package com.retholtz.shadowlink
 
 import org.hid4java.HidManager
-import java.awt.Robot
-import java.awt.event.KeyEvent
+import java.awt.*
+import java.awt.event.*
+import java.awt.image.BufferedImage
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.Properties
 import javax.swing.*
-import java.awt.GridLayout
-import java.awt.FlowLayout
-import java.awt.Font
 
 // Data class to hold the configuration for a single paddle
 data class PaddleBind(
-    var keyChar: String,
-    var shift: Boolean,
-    var ctrl: Boolean,
-    var alt: Boolean
+    var enabled: Boolean = true,
+    var isMacro: Boolean = false,
+    var macroText: String = "",
+    var keyChar: String = "A",
+    var shift: Boolean = false,
+    var ctrl: Boolean = false,
+    var alt: Boolean = false,
+    var win: Boolean = false
 )
 
 // Global memory for our bindings
-val m1Bind = PaddleBind("J", shift = false, ctrl = false, alt = false)
-val m2Bind = PaddleBind("L", shift = false, ctrl = false, alt = false)
-val m3Bind = PaddleBind("G", shift = false, ctrl = false, alt = false)
-val m4Bind = PaddleBind("M", shift = false, ctrl = false, alt = false)
+val m1Bind = PaddleBind(keyChar = "J")
+val m2Bind = PaddleBind(keyChar = "L")
+val m3Bind = PaddleBind(keyChar = "G")
+val m4Bind = PaddleBind(keyChar = "M")
 
+var startMinimized = false
 val configFile = File("config.properties")
 
 // ------------------------------------------------------------------------
@@ -71,7 +74,10 @@ val KEY_MAP = mapOf(
     "-" to KeyEvent.VK_MINUS, "=" to KeyEvent.VK_EQUALS, "," to KeyEvent.VK_COMMA, "." to KeyEvent.VK_PERIOD,
     "/" to KeyEvent.VK_SLASH, "\\" to KeyEvent.VK_BACK_SLASH, ";" to KeyEvent.VK_SEMICOLON,
     "'" to KeyEvent.VK_QUOTE, "[" to KeyEvent.VK_OPEN_BRACKET, "]" to KeyEvent.VK_CLOSE_BRACKET,
-    "`" to KeyEvent.VK_BACK_QUOTE
+    "`" to KeyEvent.VK_BACK_QUOTE,
+
+    // Modifiers added for Macro parsing
+    "Shift" to KeyEvent.VK_SHIFT, "Ctrl" to KeyEvent.VK_CONTROL, "Alt" to KeyEvent.VK_ALT, "Win" to KeyEvent.VK_WINDOWS
 )
 
 fun main() {
@@ -97,15 +103,16 @@ fun createAndShowGUI() {
         UIManager.put("CheckBox.font", baseFont)
         UIManager.put("ComboBox.font", baseFont)
         UIManager.put("Button.font", baseFont)
+        UIManager.put("TextField.font", baseFont)
     } catch (e: Exception) {
         // Ignore
     }
 
     val frame = JFrame("ShadowLink - ROG Raikiri II")
     frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
-    frame.setSize(620, 350)
+    frame.setSize(850, 420) // Widened to accommodate the 'Enabled' checkbox
     frame.setLocationRelativeTo(null)
-    frame.layout = GridLayout(6, 1, 5, 5)
+    frame.layout = GridLayout(7, 1, 5, 5)
 
     val headerLabel = JLabel("Configure Back Paddles", SwingConstants.CENTER)
     headerLabel.font = Font("Segoe UI", Font.BOLD, 18)
@@ -121,28 +128,161 @@ fun createAndShowGUI() {
     frame.add(m3Controls.panel)
     frame.add(m4Controls.panel)
 
-    val buttonPanel = JPanel(FlowLayout(FlowLayout.CENTER))
+    // Save and Options Panel
+    val optionsPanel = JPanel(FlowLayout(FlowLayout.CENTER))
+    val minimizedBox = JCheckBox("Start Minimized to System Tray", startMinimized)
+    minimizedBox.addActionListener { startMinimized = minimizedBox.isSelected }
+    optionsPanel.add(minimizedBox)
+    frame.add(optionsPanel)
+
+    // Bottom Button Panel (Macro Instructions on Left, Save on Right)
+    val buttonPanel = JPanel(BorderLayout())
+    buttonPanel.border = BorderFactory.createEmptyBorder(0, 20, 10, 20)
+
+    val helpButton = JButton("Macro Instructions")
+    helpButton.addActionListener { showMacroInstructions(frame) }
+    buttonPanel.add(helpButton, BorderLayout.WEST)
+
     val saveButton = JButton("Save & Apply")
     saveButton.addActionListener {
         updateBindFromUI(m1Bind, m1Controls)
         updateBindFromUI(m2Bind, m2Controls)
         updateBindFromUI(m3Bind, m3Controls)
         updateBindFromUI(m4Bind, m4Controls)
-
         saveConfig()
         JOptionPane.showMessageDialog(frame, "Bindings Saved and Applied instantly!", "Success", JOptionPane.INFORMATION_MESSAGE)
     }
-    buttonPanel.add(saveButton)
+    buttonPanel.add(saveButton, BorderLayout.EAST)
+
     frame.add(buttonPanel)
 
-    frame.isVisible = true
+    setupSystemTray(frame)
+}
+
+/**
+ * Displays a popup dialog with instructions on how to write macros.
+ */
+fun showMacroInstructions(parent: JFrame) {
+    val instructions = """
+        How to Build Macros:
+        Macros are a sequence of key presses and delays separated by commas.
+        
+        1. Simple Taps:
+           Type the name of the key to press and release it immediately.
+           Example: A, B, Enter
+           
+        2. Holding & Releasing Keys:
+           Add " down" to hold a key, and " up" to release it.
+           Modifiers (Shift, Ctrl, Alt, Win) usually need this!
+           Example: Shift down, A, Shift up
+           
+        3. Pauses (Delays):
+           Type a number to pause the macro for that many milliseconds.
+           (1000 = 1 second, 50 = very short pause).
+           Example: A, 500, B
+           
+        4. Special Key Names:
+           Arrows: Up, Down, Left, Right
+           Modifiers: Shift, Ctrl, Alt, Win
+           System: Space, Enter, Tab, ESC, Backspace, Delete, Insert
+           F-Keys: F1, F2 ... F12
+           
+        Example Macro (Save a file: Ctrl+S):
+        Ctrl down, S, 50, Ctrl up
+        
+        Example Macro (Run forward in a game, then jump):
+        W down, 2000, Space, W up
+    """.trimIndent()
+
+    val textArea = JTextArea(instructions)
+    textArea.isEditable = false
+    textArea.font = Font("Monospaced", Font.PLAIN, 13)
+    textArea.background = UIManager.getColor("Panel.background")
+    textArea.border = BorderFactory.createEmptyBorder(10, 10, 10, 10)
+
+    JOptionPane.showMessageDialog(
+        parent,
+        textArea,
+        "Macro Instructions",
+        JOptionPane.INFORMATION_MESSAGE
+    )
+}
+
+fun setupSystemTray(frame: JFrame) {
+    if (!SystemTray.isSupported()) {
+        frame.isVisible = true
+        return
+    }
+
+    val tray = SystemTray.getSystemTray()
+
+    val img = BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB)
+    val g = img.createGraphics()
+    g.color = Color.DARK_GRAY
+    g.fillRect(0, 0, 16, 16)
+    g.color = Color.CYAN
+    g.drawRect(1, 1, 13, 13)
+    g.dispose()
+
+    val trayIcon = TrayIcon(img, "ShadowLink")
+    trayIcon.isImageAutoSize = true
+
+    val popup = PopupMenu()
+    val restoreItem = MenuItem("Restore")
+    restoreItem.addActionListener {
+        frame.isVisible = true
+        frame.state = Frame.NORMAL
+        tray.remove(trayIcon)
+    }
+    val exitItem = MenuItem("Exit")
+    exitItem.addActionListener { System.exit(0) }
+
+    popup.add(restoreItem)
+    popup.add(exitItem)
+    trayIcon.popupMenu = popup
+
+    trayIcon.addMouseListener(object : MouseAdapter() {
+        override fun mouseClicked(e: MouseEvent) {
+            if (e.button == MouseEvent.BUTTON1) {
+                frame.isVisible = true
+                frame.state = Frame.NORMAL
+                tray.remove(trayIcon)
+            }
+        }
+    })
+
+    frame.addWindowStateListener { e ->
+        if (e.newState == Frame.ICONIFIED) {
+            frame.isVisible = false
+            try {
+                tray.add(trayIcon)
+            } catch (ex: AWTException) {
+                ex.printStackTrace()
+            }
+        }
+    }
+
+    if (startMinimized) {
+        try {
+            tray.add(trayIcon)
+            frame.isVisible = false
+        } catch (e: AWTException) {
+            frame.isVisible = true
+        }
+    } else {
+        frame.isVisible = true
+    }
 }
 
 class PaddleUIControls(
     val panel: JPanel,
+    val enabledBox: JCheckBox,
+    val isMacroBox: JCheckBox,
+    val macroField: JTextField,
     val shiftBox: JCheckBox,
     val ctrlBox: JCheckBox,
     val altBox: JCheckBox,
+    val winBox: JCheckBox,
     val keyDropdown: JComboBox<String>
 )
 
@@ -150,32 +290,72 @@ fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
     val panel = JPanel(FlowLayout(FlowLayout.CENTER))
     panel.add(JLabel("$name: "))
 
+    val enabledBox = JCheckBox("Enabled", bind.enabled)
+    val isMacroBox = JCheckBox("Macro", bind.isMacro)
+    val macroField = JTextField(bind.macroText, 20)
+    macroField.toolTipText = "Syntax: Key [down|up], delayMs (e.g. A down, 50, B, 100, A up)"
+
     val shiftBox = JCheckBox("Shift", bind.shift)
     val ctrlBox = JCheckBox("Ctrl", bind.ctrl)
     val altBox = JCheckBox("Alt", bind.alt)
+    val winBox = JCheckBox("Win", bind.win)
 
     val keyDropdown = JComboBox(SUPPORTED_KEYS)
-    val savedKey = bind.keyChar
-    val match = SUPPORTED_KEYS.firstOrNull { it.equals(savedKey, ignoreCase = true) }
-    if (match != null) {
-        keyDropdown.selectedItem = match
-    } else {
-        keyDropdown.selectedItem = "A"
+    val match = SUPPORTED_KEYS.firstOrNull { it.equals(bind.keyChar, ignoreCase = true) }
+    keyDropdown.selectedItem = match ?: "A"
+
+    fun updateVisibility() {
+        val isEnabled = enabledBox.isSelected
+        val macroMode = isMacroBox.isSelected
+
+        // Toggle interactivity based on Enabled state
+        isMacroBox.isEnabled = isEnabled
+        macroField.isEnabled = isEnabled && macroMode
+        shiftBox.isEnabled = isEnabled && !macroMode
+        ctrlBox.isEnabled = isEnabled && !macroMode
+        altBox.isEnabled = isEnabled && !macroMode
+        winBox.isEnabled = isEnabled && !macroMode
+        keyDropdown.isEnabled = isEnabled && !macroMode
+
+        // Toggle visibility based on Macro state
+        macroField.isVisible = macroMode
+        shiftBox.isVisible = !macroMode
+        ctrlBox.isVisible = !macroMode
+        altBox.isVisible = !macroMode
+        winBox.isVisible = !macroMode
+        keyDropdown.isVisible = !macroMode
+
+        panel.revalidate()
+        panel.repaint()
     }
 
+    enabledBox.addActionListener { updateVisibility() }
+    isMacroBox.addActionListener { updateVisibility() }
+
+    panel.add(enabledBox)
+    panel.add(isMacroBox)
     panel.add(shiftBox)
     panel.add(ctrlBox)
     panel.add(altBox)
+    panel.add(winBox)
     panel.add(JLabel(" + "))
     panel.add(keyDropdown)
+    panel.add(macroField)
 
-    return PaddleUIControls(panel, shiftBox, ctrlBox, altBox, keyDropdown)
+    updateVisibility()
+
+    return PaddleUIControls(panel, enabledBox, isMacroBox, macroField, shiftBox, ctrlBox, altBox, winBox, keyDropdown)
 }
 
 fun updateBindFromUI(bind: PaddleBind, controls: PaddleUIControls) {
+    bind.enabled = controls.enabledBox.isSelected
+    bind.isMacro = controls.isMacroBox.isSelected
+    bind.macroText = controls.macroField.text
+
     bind.shift = controls.shiftBox.isSelected
     bind.ctrl = controls.ctrlBox.isSelected
     bind.alt = controls.altBox.isSelected
+    bind.win = controls.winBox.isSelected
 
     bind.keyChar = controls.keyDropdown.selectedItem?.toString() ?: "A"
 }
@@ -188,50 +368,46 @@ fun loadConfig() {
     if (configFile.exists()) {
         FileInputStream(configFile).use { input -> props.load(input) }
 
-        m1Bind.keyChar = props.getProperty("M1_KEY", "J")
-        m1Bind.shift = props.getProperty("M1_SHIFT", "false").toBoolean()
-        m1Bind.ctrl = props.getProperty("M1_CTRL", "false").toBoolean()
-        m1Bind.alt = props.getProperty("M1_ALT", "false").toBoolean()
+        startMinimized = props.getProperty("START_MINIMIZED", "false").toBoolean()
 
-        m2Bind.keyChar = props.getProperty("M2_KEY", "L")
-        m2Bind.shift = props.getProperty("M2_SHIFT", "false").toBoolean()
-        m2Bind.ctrl = props.getProperty("M2_CTRL", "false").toBoolean()
-        m2Bind.alt = props.getProperty("M2_ALT", "false").toBoolean()
+        fun loadBind(prefix: String, bind: PaddleBind, defaultKey: String) {
+            bind.enabled = props.getProperty("${prefix}_ENABLED", "true").toBoolean()
+            bind.isMacro = props.getProperty("${prefix}_ISMACRO", "false").toBoolean()
+            bind.macroText = props.getProperty("${prefix}_MACROTEXT", "")
+            bind.keyChar = props.getProperty("${prefix}_KEY", defaultKey)
+            bind.shift = props.getProperty("${prefix}_SHIFT", "false").toBoolean()
+            bind.ctrl = props.getProperty("${prefix}_CTRL", "false").toBoolean()
+            bind.alt = props.getProperty("${prefix}_ALT", "false").toBoolean()
+            bind.win = props.getProperty("${prefix}_WIN", "false").toBoolean()
+        }
 
-        m3Bind.keyChar = props.getProperty("M3_KEY", "G")
-        m3Bind.shift = props.getProperty("M3_SHIFT", "false").toBoolean()
-        m3Bind.ctrl = props.getProperty("M3_CTRL", "false").toBoolean()
-        m3Bind.alt = props.getProperty("M3_ALT", "false").toBoolean()
-
-        m4Bind.keyChar = props.getProperty("M4_KEY", "M")
-        m4Bind.shift = props.getProperty("M4_SHIFT", "false").toBoolean()
-        m4Bind.ctrl = props.getProperty("M4_CTRL", "false").toBoolean()
-        m4Bind.alt = props.getProperty("M4_ALT", "false").toBoolean()
+        loadBind("M1", m1Bind, "J")
+        loadBind("M2", m2Bind, "L")
+        loadBind("M3", m3Bind, "G")
+        loadBind("M4", m4Bind, "M")
     }
 }
 
 fun saveConfig() {
     val props = Properties()
 
-    props.setProperty("M1_KEY", m1Bind.keyChar)
-    props.setProperty("M1_SHIFT", m1Bind.shift.toString())
-    props.setProperty("M1_CTRL", m1Bind.ctrl.toString())
-    props.setProperty("M1_ALT", m1Bind.alt.toString())
+    props.setProperty("START_MINIMIZED", startMinimized.toString())
 
-    props.setProperty("M2_KEY", m2Bind.keyChar)
-    props.setProperty("M2_SHIFT", m2Bind.shift.toString())
-    props.setProperty("M2_CTRL", m2Bind.ctrl.toString())
-    props.setProperty("M2_ALT", m2Bind.alt.toString())
+    fun saveBind(prefix: String, bind: PaddleBind) {
+        props.setProperty("${prefix}_ENABLED", bind.enabled.toString())
+        props.setProperty("${prefix}_ISMACRO", bind.isMacro.toString())
+        props.setProperty("${prefix}_MACROTEXT", bind.macroText)
+        props.setProperty("${prefix}_KEY", bind.keyChar)
+        props.setProperty("${prefix}_SHIFT", bind.shift.toString())
+        props.setProperty("${prefix}_CTRL", bind.ctrl.toString())
+        props.setProperty("${prefix}_ALT", bind.alt.toString())
+        props.setProperty("${prefix}_WIN", bind.win.toString())
+    }
 
-    props.setProperty("M3_KEY", m3Bind.keyChar)
-    props.setProperty("M3_SHIFT", m3Bind.shift.toString())
-    props.setProperty("M3_CTRL", m3Bind.ctrl.toString())
-    props.setProperty("M3_ALT", m3Bind.alt.toString())
-
-    props.setProperty("M4_KEY", m4Bind.keyChar)
-    props.setProperty("M4_SHIFT", m4Bind.shift.toString())
-    props.setProperty("M4_CTRL", m4Bind.ctrl.toString())
-    props.setProperty("M4_ALT", m4Bind.alt.toString())
+    saveBind("M1", m1Bind)
+    saveBind("M2", m2Bind)
+    saveBind("M3", m3Bind)
+    saveBind("M4", m4Bind)
 
     FileOutputStream(configFile).use { out ->
         props.store(out, "ShadowLink Paddle Configuration")
@@ -264,7 +440,6 @@ fun runControllerSniffer() {
 
             while (isConnected) {
                 val data = ByteArray(64)
-                // Read very fast (2ms timeout) to drain the USB buffer instantly
                 val bytesRead = raikiri.read(data, 2)
 
                 if (bytesRead > 0) {
@@ -277,45 +452,51 @@ fun runControllerSniffer() {
                         val m4IsPressed = data[7].toInt() == 1
 
                         // --- M1 STATE MACHINE ---
-                        if (m1IsPressed && !m1WasPressed) {
-                            pressKeyBind(robot, m1Bind)
-                        } else if (!m1IsPressed && m1WasPressed) {
-                            releaseKeyBind(robot, m1Bind)
+                        if (m1Bind.enabled) {
+                            if (m1IsPressed && !m1WasPressed) {
+                                if (m1Bind.isMacro) executeMacro(robot, m1Bind.macroText) else pressKeyBind(robot, m1Bind)
+                            } else if (!m1IsPressed && m1WasPressed) {
+                                if (!m1Bind.isMacro) releaseKeyBind(robot, m1Bind)
+                            }
                         }
                         m1WasPressed = m1IsPressed
 
                         // --- M2 STATE MACHINE ---
-                        if (m2IsPressed && !m2WasPressed) {
-                            pressKeyBind(robot, m2Bind)
-                        } else if (!m2IsPressed && m2WasPressed) {
-                            releaseKeyBind(robot, m2Bind)
+                        if (m2Bind.enabled) {
+                            if (m2IsPressed && !m2WasPressed) {
+                                if (m2Bind.isMacro) executeMacro(robot, m2Bind.macroText) else pressKeyBind(robot, m2Bind)
+                            } else if (!m2IsPressed && m2WasPressed) {
+                                if (!m2Bind.isMacro) releaseKeyBind(robot, m2Bind)
+                            }
                         }
                         m2WasPressed = m2IsPressed
 
                         // --- M3 STATE MACHINE ---
-                        if (m3IsPressed && !m3WasPressed) {
-                            pressKeyBind(robot, m3Bind)
-                        } else if (!m3IsPressed && m3WasPressed) {
-                            releaseKeyBind(robot, m3Bind)
+                        if (m3Bind.enabled) {
+                            if (m3IsPressed && !m3WasPressed) {
+                                if (m3Bind.isMacro) executeMacro(robot, m3Bind.macroText) else pressKeyBind(robot, m3Bind)
+                            } else if (!m3IsPressed && m3WasPressed) {
+                                if (!m3Bind.isMacro) releaseKeyBind(robot, m3Bind)
+                            }
                         }
                         m3WasPressed = m3IsPressed
 
                         // --- M4 STATE MACHINE ---
-                        if (m4IsPressed && !m4WasPressed) {
-                            pressKeyBind(robot, m4Bind)
-                        } else if (!m4IsPressed && m4WasPressed) {
-                            releaseKeyBind(robot, m4Bind)
+                        if (m4Bind.enabled) {
+                            if (m4IsPressed && !m4WasPressed) {
+                                if (m4Bind.isMacro) executeMacro(robot, m4Bind.macroText) else pressKeyBind(robot, m4Bind)
+                            } else if (!m4IsPressed && m4WasPressed) {
+                                if (!m4Bind.isMacro) releaseKeyBind(robot, m4Bind)
+                            }
                         }
                         m4WasPressed = m4IsPressed
                     }
                 } else if (bytesRead < 0) {
                     println("Background Service: Controller disconnected. Waiting for reconnect...")
-
                     releaseKeyBind(robot, m1Bind)
                     releaseKeyBind(robot, m2Bind)
                     releaseKeyBind(robot, m3Bind)
                     releaseKeyBind(robot, m4Bind)
-
                     raikiri.close()
                     isConnected = false
                 }
@@ -329,14 +510,14 @@ fun runControllerSniffer() {
 /**
  * Keyboard Execution Functions
  */
-fun getKeyCode(bind: PaddleBind): Int? {
-    return KEY_MAP.entries.firstOrNull { it.key.equals(bind.keyChar, ignoreCase = true) }?.value
+fun getKeyCode(keyChar: String): Int? {
+    return KEY_MAP.entries.firstOrNull { it.key.equals(keyChar, ignoreCase = true) }?.value
 }
 
-// Push-to-Talk "Down"
 fun pressKeyBind(robot: Robot, bind: PaddleBind) {
-    val keyCode = getKeyCode(bind) ?: return
+    val keyCode = getKeyCode(bind.keyChar) ?: return
     try {
+        if (bind.win) robot.keyPress(KeyEvent.VK_WINDOWS)
         if (bind.shift) robot.keyPress(KeyEvent.VK_SHIFT)
         if (bind.ctrl) robot.keyPress(KeyEvent.VK_CONTROL)
         if (bind.alt) robot.keyPress(KeyEvent.VK_ALT)
@@ -345,14 +526,52 @@ fun pressKeyBind(robot: Robot, bind: PaddleBind) {
     } catch (e: Exception) {}
 }
 
-// Push-to-Talk "Up"
 fun releaseKeyBind(robot: Robot, bind: PaddleBind) {
-    val keyCode = getKeyCode(bind) ?: return
+    val keyCode = getKeyCode(bind.keyChar) ?: return
     try {
         robot.keyRelease(keyCode)
 
         if (bind.alt) robot.keyRelease(KeyEvent.VK_ALT)
         if (bind.ctrl) robot.keyRelease(KeyEvent.VK_CONTROL)
         if (bind.shift) robot.keyRelease(KeyEvent.VK_SHIFT)
+        if (bind.win) robot.keyRelease(KeyEvent.VK_WINDOWS)
     } catch (e: Exception) {}
+}
+
+/**
+ * Parses and executes a comma-separated macro string on a separate Thread.
+ */
+fun executeMacro(robot: Robot, macroText: String) {
+    Thread {
+        val tokens = macroText.split(",").map { it.trim() }
+        for (token in tokens) {
+            if (token.isEmpty()) continue
+
+            val delay = token.toLongOrNull()
+            if (delay != null) {
+                Thread.sleep(delay)
+            } else {
+                val parts = token.split(" ").map { it.trim() }
+                val keyStr = parts[0]
+                val action = if (parts.size > 1) parts[1].lowercase() else "tap"
+
+                val keyCode = getKeyCode(keyStr)
+                if (keyCode != null) {
+                    try {
+                        when (action) {
+                            "down" -> robot.keyPress(keyCode)
+                            "up" -> robot.keyRelease(keyCode)
+                            else -> {
+                                robot.keyPress(keyCode)
+                                Thread.sleep(20)
+                                robot.keyRelease(keyCode)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        }
+    }.start()
 }
