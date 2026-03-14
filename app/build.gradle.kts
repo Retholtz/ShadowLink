@@ -18,13 +18,16 @@ repositories {
 dependencies {
     // HID libraries for Raikiri II communication
     implementation("org.hid4java:hid4java:0.7.0")
+
+    // JNA libraries for Windows API communication
+    // 'jna' is the core library, 'jna-platform' contains User32, Kernel32, etc.
     implementation("net.java.dev.jna:jna:5.13.0")
+    implementation("net.java.dev.jna:jna-platform:5.13.0")
 }
 
 // Configures the shadowJar task to package everything into a single runnable file.
 tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
     // FIX: Remove the "-all" suffix so the fat jar replaces the default jar.
-    // This completely bypasses the Kotlin DSL name collision for Launch4j!
     archiveClassifier.set("")
 
     manifest {
@@ -32,29 +35,14 @@ tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
     }
 }
 
-// --- NEW: Launch4j Executable Configuration ---
+// --- Launch4j Executable Configuration ---
 launch4j {
     mainClassName.set("com.retholtz.shadowlink.MainKt")
-
-    // "gui" makes it a standard Windows app and hides the black command prompt box!
     headerType.set("gui")
-
     outfile.set("ShadowLink.exe")
-
-    // --- ICON CONFIGURATION ---
-    // Tells Launch4j to inject this .ico file into the final executable.
-    // We use ${projectDir} to force Gradle to look inside the "app" folder!
     icon.set("${projectDir}/icon.ico")
-
-    // We removed the conflicting jar configuration line completely.
-    // Because we set archiveClassifier.set("") above, Launch4j will automatically
-    // find and use the correct ShadowJar file by default!
-
-    // --- JRE BUNDLING CONFIGURATION ---
-    // Tells the .exe to look for a folder named "jre" in the exact same directory
     bundledJrePath.set("jre")
     jreMinVersion.set("21")
-
     windowTitle.set("ShadowLink")
     errTitle.set("ShadowLink Error")
 }
