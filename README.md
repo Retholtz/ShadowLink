@@ -8,7 +8,7 @@ ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt 
 
 Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
 
-👉 [**Download ShadowLink v1.02**](https://drive.google.com/file/d/1cpLK48BE6R8pPbRRd4v8ycTchSSQ2DBs/view?usp=sharing)
+👉 [**Download ShadowLink v1.03**](https://drive.google.com/file/d/1s8hEsPQYWtzTB2oj8qVPdysbGot4xVSh/view?usp=sharing)
 
 
 🚀 How to UseExtract the ZIP file:
@@ -21,6 +21,7 @@ Because the bundled Java Runtime Environment (JRE) makes the release file too la
      * M3: Top Right Paddle
      * M4: Bottom Right Paddle
 4. Save & Play: Click "Save & Apply". You can safely leave the window open or minimize it. The background service automatically detects when your controller is plugged in (or swapped to the 2.4GHz dongle) and instantly applies your bindings.
+5. Optional: Create profiles and Auto-Switch between programs
 
 ⚙️ Driver Setup & Troubleshooting (Running Without Armoury Crate)
 
