@@ -39,7 +39,9 @@ data class Profile(
     val m1: PaddleBind = PaddleBind(keyChar = "J"),
     val m2: PaddleBind = PaddleBind(keyChar = "L"),
     val m3: PaddleBind = PaddleBind(keyChar = "G"),
-    val m4: PaddleBind = PaddleBind(keyChar = "M")
+    val m4: PaddleBind = PaddleBind(keyChar = "M"),
+    val cmd: PaddleBind = PaddleBind(keyChar = "C"), // New Command Button
+    val lib: PaddleBind = PaddleBind(keyChar = "V")  // New Library Button
 )
 
 // --- GLOBAL STATE ---
@@ -106,6 +108,8 @@ lateinit var m1Controls: PaddleUIControls
 lateinit var m2Controls: PaddleUIControls
 lateinit var m3Controls: PaddleUIControls
 lateinit var m4Controls: PaddleUIControls
+lateinit var cmdControls: PaddleUIControls
+lateinit var libControls: PaddleUIControls
 
 fun createAndShowGUI() {
     try {
@@ -122,7 +126,7 @@ fun createAndShowGUI() {
 
     val frame = JFrame("ShadowLink - ROG Raikiri II")
     frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
-    frame.setSize(1200, 620)
+    frame.setSize(1200, 750) // Increased height to fit two new rows
     frame.setLocationRelativeTo(null)
     frame.layout = BorderLayout(10, 10)
 
@@ -202,16 +206,20 @@ fun createAndShowGUI() {
     topPanel.add(switchRow)
     frame.add(topPanel, BorderLayout.NORTH)
 
-    val centerPanel = JPanel(GridLayout(4, 1, 5, 5))
+    val centerPanel = JPanel(GridLayout(6, 1, 5, 5)) // Increased from 4 to 6 rows
     m1Controls = createPaddleRow("M1 (Bottom Left)", activeProfile.m1)
     m2Controls = createPaddleRow("M2 (Top Left)", activeProfile.m2)
     m3Controls = createPaddleRow("M3 (Top Right)", activeProfile.m3)
     m4Controls = createPaddleRow("M4 (Bottom Right)", activeProfile.m4)
+    cmdControls = createPaddleRow("Command Button", activeProfile.cmd)
+    libControls = createPaddleRow("Library Button", activeProfile.lib)
 
     centerPanel.add(m1Controls.panel)
     centerPanel.add(m2Controls.panel)
     centerPanel.add(m3Controls.panel)
     centerPanel.add(m4Controls.panel)
+    centerPanel.add(cmdControls.panel)
+    centerPanel.add(libControls.panel)
     frame.add(centerPanel, BorderLayout.CENTER)
 
     val bottomPanel = JPanel(BorderLayout())
@@ -355,6 +363,8 @@ fun refreshUI() {
     refreshPaddleRow(m2Controls, activeProfile.m2)
     refreshPaddleRow(m3Controls, activeProfile.m3)
     refreshPaddleRow(m4Controls, activeProfile.m4)
+    refreshPaddleRow(cmdControls, activeProfile.cmd)
+    refreshPaddleRow(libControls, activeProfile.lib)
 }
 
 fun updateActiveProfileFromUI() {
@@ -363,6 +373,8 @@ fun updateActiveProfileFromUI() {
     updateBindFromUI(activeProfile.m2, m2Controls)
     updateBindFromUI(activeProfile.m3, m3Controls)
     updateBindFromUI(activeProfile.m4, m4Controls)
+    updateBindFromUI(activeProfile.cmd, cmdControls)
+    updateBindFromUI(activeProfile.lib, libControls)
 }
 
 /**
@@ -393,7 +405,7 @@ fun getForegroundProcessName(): String {
     return getProcessNameFromHwnd(hwnd)
 }
 
-// --- SNIFFER (Modified to use activeProfile) ---
+// --- SNIFFER ---
 
 fun runControllerSniffer() {
     val hidServices = HidManager.getHidServices()
@@ -406,6 +418,7 @@ fun runControllerSniffer() {
 
         if (raikiri != null && raikiri.open()) {
             var m1Pressed = false; var m2Pressed = false; var m3Pressed = false; var m4Pressed = false
+            var cmdPressed = false; var libPressed = false
             var isConnected = true
 
             while (isConnected) {
@@ -414,8 +427,17 @@ fun runControllerSniffer() {
                 if (read > 0 && (data[0].toInt() and 0xFF) == 0xB3) {
                     val p = activeProfile
 
-                    val s1 = data[8].toInt() == 1; val s2 = data[6].toInt() == 1
-                    val s3 = data[5].toInt() == 1; val s4 = data[7].toInt() == 1
+                    // The 4th byte (index 3) acts as a modifier/page indicator.
+                    // 0x02 indicates Command/Library buttons are being pressed instead of M2/M3.
+                    val isAltMode = data[3].toInt() == 2
+
+                    val s1 = !isAltMode && data[8].toInt() == 1
+                    val s2 = !isAltMode && data[6].toInt() == 1
+                    val s3 = !isAltMode && data[5].toInt() == 1
+                    val s4 = !isAltMode && data[7].toInt() == 1
+
+                    val sCmd = isAltMode && data[5].toInt() == 1
+                    val sLib = isAltMode && data[6].toInt() == 1
 
                     fun handle(state: Boolean, last: Boolean, bind: PaddleBind): Boolean {
                         if (bind.enabled) {
@@ -429,6 +451,8 @@ fun runControllerSniffer() {
                     m2Pressed = handle(s2, m2Pressed, p.m2)
                     m3Pressed = handle(s3, m3Pressed, p.m3)
                     m4Pressed = handle(s4, m4Pressed, p.m4)
+                    cmdPressed = handle(sCmd, cmdPressed, p.cmd)
+                    libPressed = handle(sLib, libPressed, p.lib)
                 } else if (read < 0) {
                     raikiri.close(); isConnected = false
                 }
@@ -466,6 +490,7 @@ fun loadAllProfiles() {
                 b.win = props.getProperty("${prefix}_WI", "false").toBoolean()
             }
             loadB("M1", p.m1); loadB("M2", p.m2); loadB("M3", p.m3); loadB("M4", p.m4)
+            loadB("CMD", p.cmd); loadB("LIB", p.lib)
             profiles.add(p)
         }
 
@@ -496,6 +521,7 @@ fun saveProfile(p: Profile) {
         props.setProperty("${prefix}_WI", b.win.toString())
     }
     saveB("M1", p.m1); saveB("M2", p.m2); saveB("M3", p.m3); saveB("M4", p.m4)
+    saveB("CMD", p.cmd); saveB("LIB", p.lib)
     FileOutputStream(File(rootDir, "${p.name}.properties")).use { props.store(it, null) }
 }
 
