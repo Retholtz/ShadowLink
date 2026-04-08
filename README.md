@@ -4,12 +4,13 @@ A lightweight, standalone background service for remapping the ASUS ROG Raikiri 
 
 ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt modifiers) directly to the physical M1, M2, M3, and M4 back paddles of your ROG Raikiri II controller. The proprietary ASUS driver (ASCEHIDRemp.sys) is required for Windows to identify the Raikiri back buttons, but ShadowLink is designed to run entirely without the Armoury Crate background services. ShadowLink only works via the 2.4Ghz connection or wired connection, Bluetooth does not support back buttons.
 *Update 1.04* : Added Command and Library buttons.
+*Update 1.05* : Added F13-F24, Added Macro repeat function
 
 📥 Download
 
 Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
 
-👉 [**Download ShadowLink v1.04**](https://drive.google.com/file/d/1-5u8G5EaW27PNVRY_wcgRCvAxV2efL3i/view?usp=sharing)
+👉 [**Download ShadowLink v1.05**](https://drive.google.com/file/d/1IcE6qz7lYACU2smNmcCIG9oufU_fQS2L/view?usp=drive_link)
 
 
 🚀 How to UseExtract the ZIP file:
