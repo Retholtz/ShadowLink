@@ -25,6 +25,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 data class PaddleBind(
     var enabled: Boolean = true,
     var isMacro: Boolean = false,
+    var repeatMacro: Boolean = false, // New Property for Repeat on Hold
     var macroText: String = "",
     var keyChar: String = "A",
     var shift: Boolean = false,
@@ -61,6 +62,7 @@ val SUPPORTED_KEYS = arrayOf(
     "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
     "`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "Backspace",
     "ESC", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
     "Insert", "Home", "Page Up", "Delete", "End", "Page Down",
     "Space", "Enter", "Tab", "Up", "Down", "Left", "Right",
     ",", ".", "/", "\\", ";", "'", "[", "]"
@@ -77,6 +79,9 @@ val KEY_MAP = mapOf(
     "F1" to KeyEvent.VK_F1, "F2" to KeyEvent.VK_F2, "F3" to KeyEvent.VK_F3, "F4" to KeyEvent.VK_F4,
     "F5" to KeyEvent.VK_F5, "F6" to KeyEvent.VK_F6, "F7" to KeyEvent.VK_F7, "F8" to KeyEvent.VK_F8,
     "F9" to KeyEvent.VK_F9, "F10" to KeyEvent.VK_F10, "F11" to KeyEvent.VK_F11, "F12" to KeyEvent.VK_F12,
+    "F13" to KeyEvent.VK_F13, "F14" to KeyEvent.VK_F14, "F15" to KeyEvent.VK_F15, "F16" to KeyEvent.VK_F16,
+    "F17" to KeyEvent.VK_F17, "F18" to KeyEvent.VK_F18, "F19" to KeyEvent.VK_F19, "F20" to KeyEvent.VK_F20,
+    "F21" to KeyEvent.VK_F21, "F22" to KeyEvent.VK_F22, "F23" to KeyEvent.VK_F23, "F24" to KeyEvent.VK_F24,
     "Insert" to KeyEvent.VK_INSERT, "Delete" to KeyEvent.VK_DELETE, "Home" to KeyEvent.VK_HOME, "End" to KeyEvent.VK_END,
     "Page Up" to KeyEvent.VK_PAGE_UP, "Page Down" to KeyEvent.VK_PAGE_DOWN,
     "Space" to KeyEvent.VK_SPACE, "Enter" to KeyEvent.VK_ENTER, "Tab" to KeyEvent.VK_TAB, "ESC" to KeyEvent.VK_ESCAPE, "Backspace" to KeyEvent.VK_BACK_SPACE,
@@ -407,6 +412,8 @@ fun getForegroundProcessName(): String {
 
 // --- SNIFFER ---
 
+class ButtonState(var pressed: Boolean = false, var macroThread: Thread? = null)
+
 fun runControllerSniffer() {
     val hidServices = HidManager.getHidServices()
     val robot = Robot().apply { isAutoWaitForIdle = false }
@@ -417,8 +424,9 @@ fun runControllerSniffer() {
             .find { Integer.toHexString(it.usagePage).endsWith("c3") }
 
         if (raikiri != null && raikiri.open()) {
-            var m1Pressed = false; var m2Pressed = false; var m3Pressed = false; var m4Pressed = false
-            var cmdPressed = false; var libPressed = false
+            val m1State = ButtonState(); val m2State = ButtonState()
+            val m3State = ButtonState(); val m4State = ButtonState()
+            val cmdState = ButtonState(); val libState = ButtonState()
             var isConnected = true
 
             while (isConnected) {
@@ -439,20 +447,28 @@ fun runControllerSniffer() {
                     val sCmd = isAltMode && data[5].toInt() == 1
                     val sLib = isAltMode && data[6].toInt() == 1
 
-                    fun handle(state: Boolean, last: Boolean, bind: PaddleBind): Boolean {
+                    fun handle(state: Boolean, bs: ButtonState, bind: PaddleBind) {
                         if (bind.enabled) {
-                            if (state && !last) { if (bind.isMacro) executeMacro(robot, bind.macroText) else pressKeyBind(robot, bind) }
-                            else if (!state && last) { if (!bind.isMacro) releaseKeyBind(robot, bind) }
+                            if (state && !bs.pressed) {
+                                if (bind.isMacro) bs.macroThread = executeMacro(robot, bind)
+                                else pressKeyBind(robot, bind)
+                            } else if (!state && bs.pressed) {
+                                if (bind.isMacro) {
+                                    // Interrupt looping or sleeping macro thread
+                                    bs.macroThread?.interrupt()
+                                    bs.macroThread = null
+                                } else releaseKeyBind(robot, bind)
+                            }
                         }
-                        return state
+                        bs.pressed = state
                     }
 
-                    m1Pressed = handle(s1, m1Pressed, p.m1)
-                    m2Pressed = handle(s2, m2Pressed, p.m2)
-                    m3Pressed = handle(s3, m3Pressed, p.m3)
-                    m4Pressed = handle(s4, m4Pressed, p.m4)
-                    cmdPressed = handle(sCmd, cmdPressed, p.cmd)
-                    libPressed = handle(sLib, libPressed, p.lib)
+                    handle(s1, m1State, p.m1)
+                    handle(s2, m2State, p.m2)
+                    handle(s3, m3State, p.m3)
+                    handle(s4, m4State, p.m4)
+                    handle(sCmd, cmdState, p.cmd)
+                    handle(sLib, libState, p.lib)
                 } else if (read < 0) {
                     raikiri.close(); isConnected = false
                 }
@@ -482,6 +498,7 @@ fun loadAllProfiles() {
             fun loadB(prefix: String, b: PaddleBind) {
                 b.enabled = props.getProperty("${prefix}_EN", "true").toBoolean()
                 b.isMacro = props.getProperty("${prefix}_MAC", "false").toBoolean()
+                b.repeatMacro = props.getProperty("${prefix}_REP", "false").toBoolean()
                 b.macroText = props.getProperty("${prefix}_TXT", "")
                 b.keyChar = props.getProperty("${prefix}_KEY", "A")
                 b.shift = props.getProperty("${prefix}_SH", "false").toBoolean()
@@ -513,6 +530,7 @@ fun saveProfile(p: Profile) {
     fun saveB(prefix: String, b: PaddleBind) {
         props.setProperty("${prefix}_EN", b.enabled.toString())
         props.setProperty("${prefix}_MAC", b.isMacro.toString())
+        props.setProperty("${prefix}_REP", b.repeatMacro.toString())
         props.setProperty("${prefix}_TXT", b.macroText)
         props.setProperty("${prefix}_KEY", b.keyChar)
         props.setProperty("${prefix}_SH", b.shift.toString())
@@ -537,7 +555,8 @@ fun saveGlobalConfig() {
 
 class PaddleUIControls(
     val panel: JPanel, val enabledBox: JCheckBox, val isMacroBox: JCheckBox,
-    val macroField: JTextField, val shiftBox: JCheckBox, val ctrlBox: JCheckBox,
+    val repeatMacroBox: JCheckBox, val macroField: JTextField,
+    val shiftBox: JCheckBox, val ctrlBox: JCheckBox,
     val altBox: JCheckBox, val winBox: JCheckBox, val keyDropdown: JComboBox<String>
 )
 
@@ -546,6 +565,7 @@ fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
     panel.add(JLabel("$name: "))
     val en = JCheckBox("Enabled", bind.enabled)
     val mac = JCheckBox("Macro", bind.isMacro)
+    val rep = JCheckBox("Repeat on Hold", bind.repeatMacro)
     val txt = JTextField(bind.macroText, 15)
 
     val sh = JCheckBox("Shift", bind.shift)
@@ -557,21 +577,22 @@ fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
 
     fun vis() {
         val e = en.isSelected; val m = mac.isSelected
-        mac.isEnabled = e; txt.isEnabled = e && m; key.isEnabled = e && !m
+        mac.isEnabled = e; txt.isEnabled = e && m; rep.isEnabled = e && m; key.isEnabled = e && !m
         sh.isEnabled = e && !m; ct.isEnabled = e && !m; al.isEnabled = e && !m; wi.isEnabled = e && !m
-        txt.isVisible = m; key.isVisible = !m; sh.isVisible = !m; ct.isVisible = !m; al.isVisible = !m; wi.isVisible = !m
+        txt.isVisible = m; rep.isVisible = m; key.isVisible = !m; sh.isVisible = !m; ct.isVisible = !m; al.isVisible = !m; wi.isVisible = !m
         panel.revalidate()
     }
     en.addActionListener { vis() }; mac.addActionListener { vis() }
 
-    panel.add(en); panel.add(mac); panel.add(sh); panel.add(ct); panel.add(al); panel.add(wi); panel.add(key); panel.add(txt)
+    panel.add(en); panel.add(mac); panel.add(rep); panel.add(sh); panel.add(ct); panel.add(al); panel.add(wi); panel.add(key); panel.add(txt)
     vis()
-    return PaddleUIControls(panel, en, mac, txt, sh, ct, al, wi, key)
+    return PaddleUIControls(panel, en, mac, rep, txt, sh, ct, al, wi, key)
 }
 
 fun refreshPaddleRow(c: PaddleUIControls, b: PaddleBind) {
     c.enabledBox.isSelected = b.enabled
     c.isMacroBox.isSelected = b.isMacro
+    c.repeatMacroBox.isSelected = b.repeatMacro
     c.macroField.text = b.macroText
     c.shiftBox.isSelected = b.shift
     c.ctrlBox.isSelected = b.ctrl
@@ -583,7 +604,8 @@ fun refreshPaddleRow(c: PaddleUIControls, b: PaddleBind) {
 
 fun updateBindFromUI(b: PaddleBind, c: PaddleUIControls) {
     b.enabled = c.enabledBox.isSelected; b.isMacro = c.isMacroBox.isSelected
-    b.macroText = c.macroField.text; b.keyChar = c.keyDropdown.selectedItem?.toString() ?: "A"
+    b.repeatMacro = c.repeatMacroBox.isSelected; b.macroText = c.macroField.text
+    b.keyChar = c.keyDropdown.selectedItem?.toString() ?: "A"
     b.shift = c.shiftBox.isSelected; b.ctrl = c.ctrlBox.isSelected
     b.alt = c.altBox.isSelected; b.win = c.winBox.isSelected
 }
@@ -656,7 +678,10 @@ fun showMacroInstructions(parent: JFrame) {
     JOptionPane.showMessageDialog(parent, msg)
 }
 
-fun getKeyCode(key: String) = KEY_MAP[key]
+// Updated getKeyCode to fall back to a case-insensitive search
+fun getKeyCode(key: String): Int? {
+    return KEY_MAP[key] ?: KEY_MAP.entries.find { it.key.equals(key, ignoreCase = true) }?.value
+}
 
 fun pressKeyBind(robot: Robot, b: PaddleBind) {
     val k = getKeyCode(b.keyChar) ?: return
@@ -680,23 +705,34 @@ fun releaseKeyBind(robot: Robot, b: PaddleBind) {
     } catch (e: Exception) {}
 }
 
-fun executeMacro(robot: Robot, text: String) {
-    Thread {
-        text.split(",").map { it.trim() }.forEach { t ->
-            if (t.isNotEmpty()) {
-                val d = t.toLongOrNull()
-                if (d != null) Thread.sleep(d)
-                else {
-                    val p = t.split(" ")
-                    val key = p[0]; val act = if (p.size > 1) p[1].lowercase() else "tap"
-                    val k = getKeyCode(key) ?: return@forEach
-                    when (act) {
-                        "down" -> robot.keyPress(k)
-                        "up" -> robot.keyRelease(k)
-                        else -> { robot.keyPress(k); Thread.sleep(20); robot.keyRelease(k) }
+fun executeMacro(robot: Robot, b: PaddleBind): Thread {
+    val t = Thread {
+        try {
+            do {
+                b.macroText.split(",").map { it.trim() }.forEach { t ->
+                    // Stop executing parts of the macro if thread has been flagged to interrupt
+                    if (Thread.interrupted()) throw InterruptedException()
+
+                    if (t.isNotEmpty()) {
+                        val d = t.toLongOrNull()
+                        if (d != null) Thread.sleep(d) // This will also throw InterruptedException if stopped during a delay
+                        else {
+                            val p = t.split(" ")
+                            val key = p[0]; val act = if (p.size > 1) p[1].lowercase() else "tap"
+                            val k = getKeyCode(key) ?: return@forEach
+                            when (act) {
+                                "down" -> robot.keyPress(k)
+                                "up" -> robot.keyRelease(k)
+                                else -> { robot.keyPress(k); Thread.sleep(20); robot.keyRelease(k) }
+                            }
+                        }
                     }
                 }
-            }
+            } while (b.repeatMacro && !Thread.interrupted()) // Loop if toggled and not interrupted
+        } catch (e: InterruptedException) {
+            // Macro was canceled early because the paddle was released
         }
-    }.start()
+    }
+    t.start()
+    return t
 }
