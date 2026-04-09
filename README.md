@@ -8,11 +8,13 @@ ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt 
 
 *Update 1.05* : Added F13-F24, Added Macro repeat function
 
+*Update 1.06* : Fixed Macro Repeat not releasing keybind
+
 📥 Download
 
 Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
 
-👉 [**Download ShadowLink v1.05**](https://drive.google.com/file/d/1IcE6qz7lYACU2smNmcCIG9oufU_fQS2L/view?usp=drive_link)
+👉 [**Download ShadowLink v1.06**](https://drive.google.com/file/d/11GsHroL8-JPe0m_91RYtpptd3rN0P1oA/view?usp=drive_link)
 
 
 🚀 How to UseExtract the ZIP file:
