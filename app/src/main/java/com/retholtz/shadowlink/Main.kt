@@ -733,7 +733,7 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
                                 else -> { // Tap
                                     robot.keyPress(k)
                                     pressedKeys.add(k)
-                                    Thread.sleep(20) // Interruption often happens here
+                                    Thread.sleep(20)
                                     robot.keyRelease(k)
                                     pressedKeys.remove(k)
                                 }
