@@ -131,7 +131,7 @@ fun createAndShowGUI() {
 
     val frame = JFrame("ShadowLink - ROG Raikiri II")
     frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
-    frame.setSize(1200, 750) // Increased height to fit two new rows
+    frame.setSize(1200, 750)
     frame.setLocationRelativeTo(null)
     frame.layout = BorderLayout(10, 10)
 
@@ -211,7 +211,7 @@ fun createAndShowGUI() {
     topPanel.add(switchRow)
     frame.add(topPanel, BorderLayout.NORTH)
 
-    val centerPanel = JPanel(GridLayout(6, 1, 5, 5)) // Increased from 4 to 6 rows
+    val centerPanel = JPanel(GridLayout(6, 1, 5, 5))
     m1Controls = createPaddleRow("M1 (Bottom Left)", activeProfile.m1)
     m2Controls = createPaddleRow("M2 (Top Left)", activeProfile.m2)
     m3Controls = createPaddleRow("M3 (Top Right)", activeProfile.m3)
@@ -707,12 +707,13 @@ fun releaseKeyBind(robot: Robot, b: PaddleBind) {
 
 fun executeMacro(robot: Robot, b: PaddleBind): Thread {
     val t = Thread {
+        val pressedKeys = mutableSetOf<Int>() // Keep track of all keys pushed down in this execution
         try {
             do {
                 b.macroText.split(",").map { it.trim() }.forEach { t ->
                     // Stop executing parts of the macro if thread has been flagged to interrupt
-                    if (Thread.interrupted()) throw InterruptedException()
-
+                    if (Thread.interrupted()) throw InterruptedException() 
+                    
                     if (t.isNotEmpty()) {
                         val d = t.toLongOrNull()
                         if (d != null) Thread.sleep(d) // This will also throw InterruptedException if stopped during a delay
@@ -721,9 +722,21 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
                             val key = p[0]; val act = if (p.size > 1) p[1].lowercase() else "tap"
                             val k = getKeyCode(key) ?: return@forEach
                             when (act) {
-                                "down" -> robot.keyPress(k)
-                                "up" -> robot.keyRelease(k)
-                                else -> { robot.keyPress(k); Thread.sleep(20); robot.keyRelease(k) }
+                                "down" -> {
+                                    robot.keyPress(k)
+                                    pressedKeys.add(k) // Track it so we can clean it up
+                                }
+                                "up" -> {
+                                    robot.keyRelease(k)
+                                    pressedKeys.remove(k) // Remove it once successfully released
+                                }
+                                else -> { // Tap
+                                    robot.keyPress(k)
+                                    pressedKeys.add(k)
+                                    Thread.sleep(20) // Interruption often happens here
+                                    robot.keyRelease(k)
+                                    pressedKeys.remove(k)
+                                }
                             }
                         }
                     }
@@ -731,6 +744,11 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
             } while (b.repeatMacro && !Thread.interrupted()) // Loop if toggled and not interrupted
         } catch (e: InterruptedException) {
             // Macro was canceled early because the paddle was released
+        } finally {
+            // GUARANTEED CLEANUP: Ensure no keys are stuck down
+            pressedKeys.forEach { k -> 
+                try { robot.keyRelease(k) } catch (e: Exception) {} 
+            }
         }
     }
     t.start()
