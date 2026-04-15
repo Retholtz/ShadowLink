@@ -6,7 +6,11 @@ import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinNT
 import com.sun.jna.platform.win32.WinDef.HWND
 import com.sun.jna.ptr.IntByReference
+import org.hid4java.HidDevice
 import org.hid4java.HidManager
+import org.hid4java.HidServicesListener
+import org.hid4java.HidServicesSpecification
+import org.hid4java.event.HidServicesEvent
 import java.awt.*
 import java.awt.event.*
 import java.awt.image.BufferedImage
@@ -101,7 +105,8 @@ fun main() {
         createAndShowGUI()
     }
 
-    Thread { runControllerSniffer() }.start()
+    // Notice we just launch the event-based sniffer now
+    runControllerSniffer()
     Thread { runAutoSwitchWatchdog() }.start()
 }
 
@@ -415,68 +420,106 @@ fun getForegroundProcessName(): String {
 class ButtonState(var pressed: Boolean = false, var macroThread: Thread? = null)
 
 fun runControllerSniffer() {
-    val hidServices = HidManager.getHidServices()
+    // 1. Throttle USB scanning from 500ms to 5000ms to prevent Leviathan timeouts
+    val spec = HidServicesSpecification().apply {
+        scanInterval = 5000
+    }
+
+    val hidServices = HidManager.getHidServices(spec)
     val robot = Robot().apply { isAutoWaitForIdle = false }
 
-    while (true) {
-        val raikiri = hidServices.attachedHidDevices
-            .filter { it.vendorId == 0x0B05 }
-            .find { Integer.toHexString(it.usagePage).endsWith("c3") }
+    // 2. Eliminate manual while(true) loop by using an OS-level listener
+    val controllerListener = object : HidServicesListener {
+        @Volatile var isConnected = false
+        var readingThread: Thread? = null
 
-        if (raikiri != null && raikiri.open()) {
-            val m1State = ButtonState(); val m2State = ButtonState()
-            val m3State = ButtonState(); val m4State = ButtonState()
-            val cmdState = ButtonState(); val libState = ButtonState()
-            var isConnected = true
-
-            while (isConnected) {
-                val data = ByteArray(64)
-                val read = raikiri.read(data, 500)
-                if (read > 0 && (data[0].toInt() and 0xFF) == 0xB3) {
-                    val p = activeProfile
-
-                    // The 4th byte (index 3) acts as a modifier/page indicator.
-                    // 0x02 indicates Command/Library buttons are being pressed instead of M2/M3.
-                    val isAltMode = data[3].toInt() == 2
-
-                    val s1 = !isAltMode && data[8].toInt() == 1
-                    val s2 = !isAltMode && data[6].toInt() == 1
-                    val s3 = !isAltMode && data[5].toInt() == 1
-                    val s4 = !isAltMode && data[7].toInt() == 1
-
-                    val sCmd = isAltMode && data[5].toInt() == 1
-                    val sLib = isAltMode && data[6].toInt() == 1
-
-                    fun handle(state: Boolean, bs: ButtonState, bind: PaddleBind) {
-                        if (bind.enabled) {
-                            if (state && !bs.pressed) {
-                                if (bind.isMacro) bs.macroThread = executeMacro(robot, bind)
-                                else pressKeyBind(robot, bind)
-                            } else if (!state && bs.pressed) {
-                                if (bind.isMacro) {
-                                    // Interrupt looping or sleeping macro thread
-                                    bs.macroThread?.interrupt()
-                                    bs.macroThread = null
-                                } else releaseKeyBind(robot, bind)
-                            }
-                        }
-                        bs.pressed = state
-                    }
-
-                    handle(s1, m1State, p.m1)
-                    handle(s2, m2State, p.m2)
-                    handle(s3, m3State, p.m3)
-                    handle(s4, m4State, p.m4)
-                    handle(sCmd, cmdState, p.cmd)
-                    handle(sLib, libState, p.lib)
-                } else if (read < 0) {
-                    raikiri.close(); isConnected = false
-                }
+        override fun hidDeviceAttached(event: HidServicesEvent) {
+            val device = event.hidDevice
+            if (device.vendorId == 0x0B05 && Integer.toHexString(device.usagePage).endsWith("c3")) {
+                startReading(device)
             }
-        } else {
-            Thread.sleep(2000)
+        }
+
+        override fun hidDeviceDetached(event: HidServicesEvent) {
+            val device = event.hidDevice
+            if (device.vendorId == 0x0B05 && Integer.toHexString(device.usagePage).endsWith("c3")) {
+                isConnected = false
+                readingThread?.interrupt()
+            }
+        }
+
+        override fun hidFailure(event: HidServicesEvent) {}
+
+        @Synchronized
+        fun startReading(raikiri: HidDevice) {
+            if (isConnected) return
+            if (raikiri.open()) {
+                isConnected = true
+                readingThread = Thread {
+                    val m1State = ButtonState(); val m2State = ButtonState()
+                    val m3State = ButtonState(); val m4State = ButtonState()
+                    val cmdState = ButtonState(); val libState = ButtonState()
+
+                    while (isConnected) {
+                        try {
+                            val data = ByteArray(64)
+                            val read = raikiri.read(data, 500)
+                            if (read > 0 && (data[0].toInt() and 0xFF) == 0xB3) {
+                                val p = activeProfile
+                                val isAltMode = data[3].toInt() == 2
+
+                                val s1 = !isAltMode && data[8].toInt() == 1
+                                val s2 = !isAltMode && data[6].toInt() == 1
+                                val s3 = !isAltMode && data[5].toInt() == 1
+                                val s4 = !isAltMode && data[7].toInt() == 1
+
+                                val sCmd = isAltMode && data[5].toInt() == 1
+                                val sLib = isAltMode && data[6].toInt() == 1
+
+                                fun handle(state: Boolean, bs: ButtonState, bind: PaddleBind) {
+                                    if (bind.enabled) {
+                                        if (state && !bs.pressed) {
+                                            if (bind.isMacro) bs.macroThread = executeMacro(robot, bind)
+                                            else pressKeyBind(robot, bind)
+                                        } else if (!state && bs.pressed) {
+                                            if (bind.isMacro) {
+                                                bs.macroThread?.interrupt()
+                                                bs.macroThread = null
+                                            } else releaseKeyBind(robot, bind)
+                                        }
+                                    }
+                                    bs.pressed = state
+                                }
+
+                                handle(s1, m1State, p.m1)
+                                handle(s2, m2State, p.m2)
+                                handle(s3, m3State, p.m3)
+                                handle(s4, m4State, p.m4)
+                                handle(sCmd, cmdState, p.cmd)
+                                handle(sLib, libState, p.lib)
+                            } else if (read < 0) {
+                                isConnected = false
+                                raikiri.close()
+                            }
+                        } catch (e: Exception) {
+                            isConnected = false
+                            raikiri.close()
+                        }
+                    }
+                }
+                readingThread?.start()
+            }
         }
     }
+
+    hidServices.addHidServicesListener(controllerListener)
+    hidServices.start()
+
+    // 3. Manually trigger for device if it was already plugged in before the listener started
+    hidServices.attachedHidDevices
+        .filter { it.vendorId == 0x0B05 }
+        .find { Integer.toHexString(it.usagePage).endsWith("c3") }
+        ?.let { controllerListener.startReading(it) }
 }
 
 // --- PERSISTENCE ---
@@ -712,8 +755,8 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
             do {
                 b.macroText.split(",").map { it.trim() }.forEach { t ->
                     // Stop executing parts of the macro if thread has been flagged to interrupt
-                    if (Thread.interrupted()) throw InterruptedException() 
-                    
+                    if (Thread.interrupted()) throw InterruptedException()
+
                     if (t.isNotEmpty()) {
                         val d = t.toLongOrNull()
                         if (d != null) Thread.sleep(d) // This will also throw InterruptedException if stopped during a delay
@@ -746,8 +789,8 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
             // Macro was canceled early because the paddle was released
         } finally {
             // GUARANTEED CLEANUP: Ensure no keys are stuck down
-            pressedKeys.forEach { k -> 
-                try { robot.keyRelease(k) } catch (e: Exception) {} 
+            pressedKeys.forEach { k ->
+                try { robot.keyRelease(k) } catch (e: Exception) {}
             }
         }
     }
