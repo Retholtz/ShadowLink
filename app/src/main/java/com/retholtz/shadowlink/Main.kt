@@ -69,7 +69,9 @@ val SUPPORTED_KEYS = arrayOf(
     "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
     "Insert", "Home", "Page Up", "Delete", "End", "Page Down",
     "Space", "Enter", "Tab", "Up", "Down", "Left", "Right",
-    ",", ".", "/", "\\", ";", "'", "[", "]"
+    ",", ".", "/", "\\", ";", "'", "[", "]",
+    "NumPad 0", "NumPad 1", "NumPad 2", "NumPad 3", "NumPad 4", "NumPad 5", "NumPad 6", "NumPad 7", "NumPad 8", "NumPad 9",
+    "NumPad /", "NumPad *", "NumPad -", "NumPad +", "NumPad .", "NumPad Enter"
 )
 
 val KEY_MAP = mapOf(
@@ -93,7 +95,13 @@ val KEY_MAP = mapOf(
     "-" to KeyEvent.VK_MINUS, "=" to KeyEvent.VK_EQUALS, "," to KeyEvent.VK_COMMA, "." to KeyEvent.VK_PERIOD,
     "/" to KeyEvent.VK_SLASH, "\\" to KeyEvent.VK_BACK_SLASH, ";" to KeyEvent.VK_SEMICOLON,
     "'" to KeyEvent.VK_QUOTE, "[" to KeyEvent.VK_OPEN_BRACKET, "]" to KeyEvent.VK_CLOSE_BRACKET,
-    "`" to KeyEvent.VK_BACK_QUOTE, "Shift" to KeyEvent.VK_SHIFT, "Ctrl" to KeyEvent.VK_CONTROL, "Alt" to KeyEvent.VK_ALT, "Win" to KeyEvent.VK_WINDOWS
+    "`" to KeyEvent.VK_BACK_QUOTE, "Shift" to KeyEvent.VK_SHIFT, "Ctrl" to KeyEvent.VK_CONTROL, "Alt" to KeyEvent.VK_ALT, "Win" to KeyEvent.VK_WINDOWS,
+    "NumPad 0" to KeyEvent.VK_NUMPAD0, "NumPad 1" to KeyEvent.VK_NUMPAD1, "NumPad 2" to KeyEvent.VK_NUMPAD2,
+    "NumPad 3" to KeyEvent.VK_NUMPAD3, "NumPad 4" to KeyEvent.VK_NUMPAD4, "NumPad 5" to KeyEvent.VK_NUMPAD5,
+    "NumPad 6" to KeyEvent.VK_NUMPAD6, "NumPad 7" to KeyEvent.VK_NUMPAD7, "NumPad 8" to KeyEvent.VK_NUMPAD8,
+    "NumPad 9" to KeyEvent.VK_NUMPAD9, "NumPad /" to KeyEvent.VK_DIVIDE, "NumPad *" to KeyEvent.VK_MULTIPLY,
+    "NumPad -" to KeyEvent.VK_SUBTRACT, "NumPad +" to KeyEvent.VK_ADD, "NumPad ." to KeyEvent.VK_DECIMAL,
+    "NumPad Enter" to KeyEvent.VK_ENTER
 )
 
 // --- MAIN ENTRY ---
