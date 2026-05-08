@@ -10,11 +10,15 @@ ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt 
 
 *Update 1.06* : Fixed Macro Repeat not releasing keybind
 
+*Update 1.07* : Corrected an issue with ShadowLink causing disconnects to other devices (i.e. - Razer Speakers)
+
+*Update 1.08* : Added Numpad support
+
 📥 Download
 
 Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
 
-👉 [**Download ShadowLink v1.06**](https://drive.google.com/file/d/11GsHroL8-JPe0m_91RYtpptd3rN0P1oA/view?usp=drive_link)
+👉 [**Download ShadowLink v1.08**](https://drive.google.com/file/d/1w_IWhfSnYPTe3p4vcIcBtxKvAtppHAeA/view?usp=drive_link)
 
 
 🚀 How to UseExtract the ZIP file:
