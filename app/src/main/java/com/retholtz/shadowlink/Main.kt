@@ -17,6 +17,7 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.URI
 import java.util.Properties
 import javax.imageio.ImageIO
 import javax.swing.*
@@ -55,9 +56,17 @@ var profiles = mutableListOf<Profile>()
 var activeProfile: Profile = Profile()
 var autoSwitchEnabled = true
 var startMinimized = false
+var loadOnStartup = false
 
-val rootDir = File("profiles").apply { if (!exists()) mkdirs() }
-val globalConfigFile = File("config.properties")
+// Force the app to use its own directory instead of C:\Windows\System32 on startup
+val appDir = try {
+    File(PaddleBind::class.java.protectionDomain.codeSource.location.toURI()).parentFile
+} catch (e: Exception) {
+    File(System.getProperty("user.dir"))
+}
+
+val rootDir = File(appDir, "profiles").apply { if (!exists()) mkdirs() }
+val globalConfigFile = File(appDir, "config.properties")
 
 // --- KEY MAPPING ---
 
@@ -107,15 +116,23 @@ val KEY_MAP = mapOf(
 // --- MAIN ENTRY ---
 
 fun main() {
+    System.setProperty("java.awt.headless", "false")
     loadAllProfiles()
 
     SwingUtilities.invokeLater {
         createAndShowGUI()
-    }
 
-    // Notice we just launch the event-based sniffer now
-    runControllerSniffer()
-    Thread { runAutoSwitchWatchdog() }.start()
+        // Start hardware scanners AFTER the GUI is visible to prevent startup lockups
+        Thread {
+            Thread.sleep(1500)
+            runControllerSniffer()
+        }.start()
+
+        Thread {
+            Thread.sleep(1500)
+            runAutoSwitchWatchdog()
+        }.start()
+    }
 }
 
 // --- CORE UI ---
@@ -242,9 +259,14 @@ fun createAndShowGUI() {
 
     val bottomPanel = JPanel(BorderLayout())
     val optionsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 15, 10))
+
     val minimizedBox = JCheckBox("Start Minimized", startMinimized)
     minimizedBox.addActionListener { startMinimized = minimizedBox.isSelected }
     optionsPanel.add(minimizedBox)
+
+    val startupBox = JCheckBox("Load on Startup", loadOnStartup)
+    startupBox.addActionListener { loadOnStartup = startupBox.isSelected }
+    optionsPanel.add(startupBox)
 
     val helpBtn = JButton("Macro Help")
     helpBtn.addActionListener { showMacroInstructions(frame) }
@@ -258,7 +280,8 @@ fun createAndShowGUI() {
         updateActiveProfileFromUI()
         saveProfile(activeProfile)
         saveGlobalConfig()
-        JOptionPane.showMessageDialog(frame, "Profile '${activeProfile.name}' Saved!")
+        updateStartupRegistry(loadOnStartup)
+        JOptionPane.showMessageDialog(frame, "Settings & Profile '${activeProfile.name}' Saved!")
     }
     bottomPanel.add(saveBtn, BorderLayout.EAST)
     frame.add(bottomPanel, BorderLayout.SOUTH)
@@ -434,6 +457,8 @@ fun runControllerSniffer() {
     }
 
     val hidServices = HidManager.getHidServices(spec)
+
+    // Eager initialization safely delayed by the 1500ms sleep in main()
     val robot = Robot().apply { isAutoWaitForIdle = false }
 
     // 2. Eliminate manual while(true) loop by using an OS-level listener
@@ -523,11 +548,22 @@ fun runControllerSniffer() {
     hidServices.addHidServicesListener(controllerListener)
     hidServices.start()
 
-    // 3. Manually trigger for device if it was already plugged in before the listener started
-    hidServices.attachedHidDevices
-        .filter { it.vendorId == 0x0B05 }
-        .find { Integer.toHexString(it.usagePage).endsWith("c3") }
-        ?.let { controllerListener.startReading(it) }
+    // 3. Controller Watchdog Loop
+    // Automatically re-engages the controller if it wakes up from sleep
+    // or if the wireless dongle fails to trigger standard Windows USB connection events.
+    Thread {
+        while (true) {
+            if (!controllerListener.isConnected) {
+                try {
+                    hidServices.attachedHidDevices
+                        .filter { it.vendorId == 0x0B05 }
+                        .find { Integer.toHexString(it.usagePage).endsWith("c3") }
+                        ?.let { controllerListener.startReading(it) }
+                } catch (e: Exception) {}
+            }
+            Thread.sleep(2000)
+        }
+    }.start()
 }
 
 // --- PERSISTENCE ---
@@ -568,6 +604,7 @@ fun loadAllProfiles() {
             val lastActive = global.getProperty("ACTIVE_PROFILE", "Default")
             autoSwitchEnabled = global.getProperty("AUTO_SWITCH", "true").toBoolean()
             startMinimized = global.getProperty("START_MINIMIZED", "false").toBoolean()
+            loadOnStartup = global.getProperty("LOAD_ON_STARTUP", "false").toBoolean()
             activeProfile = profiles.find { it.name == lastActive } ?: profiles[0]
         } else {
             activeProfile = profiles[0]
@@ -599,7 +636,67 @@ fun saveGlobalConfig() {
     props.setProperty("ACTIVE_PROFILE", activeProfile.name)
     props.setProperty("AUTO_SWITCH", autoSwitchEnabled.toString())
     props.setProperty("START_MINIMIZED", startMinimized.toString())
+    props.setProperty("LOAD_ON_STARTUP", loadOnStartup.toString())
     FileOutputStream(globalConfigFile).use { props.store(it, null) }
+}
+
+fun updateStartupRegistry(enable: Boolean) {
+    try {
+        val appName = "ShadowLink"
+        val path = File(PaddleBind::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+
+        // Prevent setting the startup script if running uncompiled out of IntelliJ/Eclipse
+        if (path.contains("classes") || path.contains("out") || path.contains("build")) {
+            println("Running from IDE, ignoring startup setting.")
+            return
+        }
+
+        // More reliable way to construct the full Windows user identity
+        val domain = System.getenv("USERDOMAIN") ?: System.getenv("COMPUTERNAME") ?: ""
+        val user = System.getenv("USERNAME") ?: System.getProperty("user.name") ?: ""
+        val currentUser = if (domain.isNotEmpty()) "$domain\\$user" else user
+
+        val psScriptText = if (enable) {
+            val isJar = path.lowercase().endsWith(".jar")
+            val targetExe = if (isJar) File(System.getProperty("java.home"), "bin\\javaw.exe").absolutePath else path
+            val args = if (isJar) "-jar \"$path\"" else ""
+            val workingDir = File(path).parentFile.absolutePath
+
+            """
+                try {
+                    ${'$'}Action = New-ScheduledTaskAction -Execute '$targetExe' ${if (args.isNotEmpty()) "-Argument '$args'" else ""} -WorkingDirectory '$workingDir'
+                    ${'$'}Trigger = New-ScheduledTaskTrigger -AtLogOn
+                    ${'$'}Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
+                    ${'$'}Principal = New-ScheduledTaskPrincipal -UserId '$currentUser' -LogonType Interactive -RunLevel Highest
+                    Register-ScheduledTask -TaskName '$appName' -Action ${'$'}Action -Trigger ${'$'}Trigger -Settings ${'$'}Settings -Principal ${'$'}Principal -Force
+                } catch {}
+            """.trimIndent()
+        } else {
+            """
+                try {
+                    Unregister-ScheduledTask -TaskName '$appName' -Confirm:${'$'}false
+                } catch {}
+            """.trimIndent()
+        }
+
+        // Write the script to a temporary file
+        val tempScript = File.createTempFile("ShadowLink_Startup", ".ps1")
+        tempScript.writeText(psScriptText)
+
+        // Trigger UAC Admin Prompt with -WindowStyle Hidden so the blue PowerShell window never shows up
+        val uacCommand = "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"${tempScript.absolutePath}\"' -Verb RunAs -Wait"
+
+        // Encode the outer launcher script
+        val outerBase64 = java.util.Base64.getEncoder().encodeToString(uacCommand.toByteArray(Charsets.UTF_16LE))
+
+        Runtime.getRuntime().exec(arrayOf("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", outerBase64)).waitFor()
+
+        // Clean up the temporary script
+        tempScript.delete()
+
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
 }
 
 // --- UI HELPERS ---
