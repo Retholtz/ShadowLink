@@ -25,32 +25,9 @@ import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
 
-// --- DATA STRUCTURES ---
-
-data class PaddleBind(
-    var enabled: Boolean = true,
-    var isMacro: Boolean = false,
-    var repeatMacro: Boolean = false, // New Property for Repeat on Hold
-    var macroText: String = "",
-    var keyChar: String = "A",
-    var shift: Boolean = false,
-    var ctrl: Boolean = false,
-    var alt: Boolean = false,
-    var win: Boolean = false
-)
-
-data class Profile(
-    var name: String = "Default",
-    var targetProcess: String = "", // e.g. "chrome.exe"
-    val m1: PaddleBind = PaddleBind(keyChar = "J"),
-    val m2: PaddleBind = PaddleBind(keyChar = "L"),
-    val m3: PaddleBind = PaddleBind(keyChar = "G"),
-    val m4: PaddleBind = PaddleBind(keyChar = "M"),
-    val cmd: PaddleBind = PaddleBind(keyChar = "C"), // New Command Button
-    val lib: PaddleBind = PaddleBind(keyChar = "V")  // New Library Button
-)
-
 // --- GLOBAL STATE ---
+const val APP_VERSION = "1.1"
+const val GITHUB_REPO = "retholtz/ShadowLink" // Make sure this matches your exact GitHub username/repo
 
 var profiles = mutableListOf<Profile>()
 var activeProfile: Profile = Profile()
@@ -67,6 +44,31 @@ val appDir = try {
 
 val rootDir = File(appDir, "profiles").apply { if (!exists()) mkdirs() }
 val globalConfigFile = File(appDir, "config.properties")
+
+// --- DATA STRUCTURES ---
+
+data class PaddleBind(
+    var enabled: Boolean = true,
+    var isMacro: Boolean = false,
+    var repeatMacro: Boolean = false,
+    var macroText: String = "",
+    var keyChar: String = "A",
+    var shift: Boolean = false,
+    var ctrl: Boolean = false,
+    var alt: Boolean = false,
+    var win: Boolean = false
+)
+
+data class Profile(
+    var name: String = "Default",
+    var targetProcess: String = "",
+    val m1: PaddleBind = PaddleBind(keyChar = "J"),
+    val m2: PaddleBind = PaddleBind(keyChar = "L"),
+    val m3: PaddleBind = PaddleBind(keyChar = "G"),
+    val m4: PaddleBind = PaddleBind(keyChar = "M"),
+    val cmd: PaddleBind = PaddleBind(keyChar = "C"),
+    val lib: PaddleBind = PaddleBind(keyChar = "V")
+)
 
 // --- KEY MAPPING ---
 
@@ -159,7 +161,7 @@ fun createAndShowGUI() {
         UIManager.put("TitledBorder.font", baseFont.deriveFont(Font.BOLD))
     } catch (e: Exception) {}
 
-    val frame = JFrame("ShadowLink - ROG Raikiri II")
+    val frame = JFrame("ShadowLink - ROG Raikiri II - v$APP_VERSION")
     frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
     frame.setSize(1200, 750)
     frame.setLocationRelativeTo(null)
@@ -272,6 +274,10 @@ fun createAndShowGUI() {
     helpBtn.addActionListener { showMacroInstructions(frame) }
     optionsPanel.add(helpBtn)
 
+    val updateBtn = JButton("Check for Updates")
+    updateBtn.addActionListener { checkForUpdates(frame) }
+    optionsPanel.add(updateBtn)
+
     bottomPanel.add(optionsPanel, BorderLayout.WEST)
 
     val saveBtn = JButton("Save & Apply All Settings")
@@ -287,6 +293,87 @@ fun createAndShowGUI() {
     frame.add(bottomPanel, BorderLayout.SOUTH)
 
     setupSystemTray(frame)
+}
+
+// --- UPDATER ---
+
+fun checkForUpdates(parent: JFrame) {
+    Thread {
+        try {
+            // 1. Query the GitHub API for the latest release
+            val apiUrl = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+            val connection = URI(apiUrl).toURL().openConnection() as java.net.HttpURLConnection
+            connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+
+            if (connection.responseCode != 200) {
+                SwingUtilities.invokeLater { JOptionPane.showMessageDialog(parent, "Could not check for updates. GitHub API returned: ${connection.responseCode}") }
+                return@Thread
+            }
+
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+
+            // 2. Extract Version Tag and Download URL using Regex to avoid bulky JSON libraries
+            val tagMatch = "\"tag_name\":\\s*\"v?([^\"]+)\"".toRegex().find(response)
+            val latestVersion = tagMatch?.groups?.get(1)?.value
+
+            if (latestVersion == null) {
+                SwingUtilities.invokeLater { JOptionPane.showMessageDialog(parent, "Failed to parse version from GitHub.") }
+                return@Thread
+            }
+
+            if (latestVersion <= APP_VERSION) {
+                SwingUtilities.invokeLater { JOptionPane.showMessageDialog(parent, "You are up to date! (Version $APP_VERSION)") }
+                return@Thread
+            }
+
+            // 3. Find the correct asset (.exe or .jar) based on what the user is currently running
+            val currentFile = File(PaddleBind::class.java.protectionDomain.codeSource.location.toURI())
+            val extension = if (currentFile.name.endsWith(".jar", true)) ".jar" else ".exe"
+
+            val urlMatch = "\"browser_download_url\":\\s*\"([^\"]+\\$extension)\"".toRegex().find(response)
+            val downloadUrl = urlMatch?.groups?.get(1)?.value
+
+            if (downloadUrl == null) {
+                SwingUtilities.invokeLater { JOptionPane.showMessageDialog(parent, "Update found (v$latestVersion), but no $extension asset was found attached to the GitHub release.") }
+                return@Thread
+            }
+
+            // 4. Prompt the user
+            val choice = JOptionPane.showConfirmDialog(parent, "Version $latestVersion is available!\n\nWould you like to download and install it now?", "Update Available", JOptionPane.YES_NO_OPTION)
+            if (choice != JOptionPane.YES_OPTION) return@Thread
+
+            // 5. Download the update
+            val updateFile = File(currentFile.parentFile, "ShadowLink_Update$extension")
+            URI(downloadUrl).toURL().openStream().use { input ->
+                FileOutputStream(updateFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            // 6. Create the swap script to replace the file while the app is closed
+            val batFile = File(currentFile.parentFile, "updater.bat")
+            val batContent = """
+                @echo off
+                cd /d "%~dp0"
+                timeout /t 2 /nobreak > nul
+                del "${currentFile.name}"
+                ren "${updateFile.name}" "${currentFile.name}"
+                start "" "${currentFile.name}"
+                del "%~f0" & exit
+            """.trimIndent()
+            batFile.writeText(batContent)
+
+            // 7. Execute script with ProcessBuilder to guarantee it inherits the exact working directory
+            val pb = ProcessBuilder("cmd", "/c", "start", "", batFile.absolutePath)
+            pb.directory(currentFile.parentFile)
+            pb.start()
+            System.exit(0)
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            SwingUtilities.invokeLater { JOptionPane.showMessageDialog(parent, "Error checking for updates: ${e.message}") }
+        }
+    }.start()
 }
 
 // --- PROCESS PICKER DIALOG ---
@@ -418,9 +505,6 @@ fun updateActiveProfileFromUI() {
     updateBindFromUI(activeProfile.lib, libControls)
 }
 
-/**
- * Monitors the active window and switches profiles automatically.
- */
 fun runAutoSwitchWatchdog() {
     while (true) {
         if (autoSwitchEnabled) {
@@ -434,13 +518,10 @@ fun runAutoSwitchWatchdog() {
                 }
             }
         }
-        Thread.sleep(1500) // Check every 1.5 seconds
+        Thread.sleep(1500)
     }
 }
 
-/**
- * Windows JNA call to get the executable name of the focused window.
- */
 fun getForegroundProcessName(): String {
     val hwnd = User32.INSTANCE.GetForegroundWindow() ?: return ""
     return getProcessNameFromHwnd(hwnd)
@@ -550,7 +631,6 @@ fun runControllerSniffer() {
 
     // 3. Controller Watchdog Loop
     // Automatically re-engages the controller if it wakes up from sleep
-    // or if the wireless dongle fails to trigger standard Windows USB connection events.
     Thread {
         while (true) {
             if (!controllerListener.isConnected) {
@@ -566,7 +646,7 @@ fun runControllerSniffer() {
     }.start()
 }
 
-// --- PERSISTENCE ---
+// --- PERSISTENCE & SYSTEM ---
 
 fun loadAllProfiles() {
     val files = rootDir.listFiles { _, name -> name.endsWith(".properties") }
@@ -764,9 +844,7 @@ fun setupSystemTray(frame: JFrame) {
     if (!SystemTray.isSupported()) { frame.isVisible = true; return }
     val tray = SystemTray.getSystemTray()
 
-    // RELIABLE ICON LOADING:
-    // 1. Try classpath resource relative to OUR code (the "Kt" class)
-    // 2. Try file system paths for IDE runs
+    // RELIABLE ICON LOADING
     var img: Image? = null
     try {
         val stream = PaddleBind::class.java.getResourceAsStream("/icon.png")
@@ -777,7 +855,6 @@ fun setupSystemTray(frame: JFrame) {
     } catch (e: Exception) {}
 
     if (img == null) {
-        // Fallback for IDE: check absolute and relative locations
         val paths = arrayOf("icon.png", "app/src/main/resources/icon.png", "src/main/resources/icon.png")
         for (path in paths) {
             val f = File(path)
@@ -794,7 +871,6 @@ fun setupSystemTray(frame: JFrame) {
         frame.iconImage = img
         img
     } else {
-        // Fallback: Draw the blue circle if file is absolutely missing
         val fallback = BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB)
         fallback.createGraphics().run {
             setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -826,7 +902,6 @@ fun showMacroInstructions(parent: JFrame) {
     JOptionPane.showMessageDialog(parent, msg)
 }
 
-// Updated getKeyCode to fall back to a case-insensitive search
 fun getKeyCode(key: String): Int? {
     return KEY_MAP[key] ?: KEY_MAP.entries.find { it.key.equals(key, ignoreCase = true) }?.value
 }
@@ -855,16 +930,15 @@ fun releaseKeyBind(robot: Robot, b: PaddleBind) {
 
 fun executeMacro(robot: Robot, b: PaddleBind): Thread {
     val t = Thread {
-        val pressedKeys = mutableSetOf<Int>() // Keep track of all keys pushed down in this execution
+        val pressedKeys = mutableSetOf<Int>()
         try {
             do {
                 b.macroText.split(",").map { it.trim() }.forEach { t ->
-                    // Stop executing parts of the macro if thread has been flagged to interrupt
                     if (Thread.interrupted()) throw InterruptedException()
 
                     if (t.isNotEmpty()) {
                         val d = t.toLongOrNull()
-                        if (d != null) Thread.sleep(d) // This will also throw InterruptedException if stopped during a delay
+                        if (d != null) Thread.sleep(d)
                         else {
                             val p = t.split(" ")
                             val key = p[0]; val act = if (p.size > 1) p[1].lowercase() else "tap"
@@ -872,16 +946,16 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
                             when (act) {
                                 "down" -> {
                                     robot.keyPress(k)
-                                    pressedKeys.add(k) // Track it so we can clean it up
+                                    pressedKeys.add(k)
                                 }
                                 "up" -> {
                                     robot.keyRelease(k)
-                                    pressedKeys.remove(k) // Remove it once successfully released
+                                    pressedKeys.remove(k)
                                 }
-                                else -> { // Tap
+                                else -> {
                                     robot.keyPress(k)
                                     pressedKeys.add(k)
-                                    Thread.sleep(20) // Interruption often happens here
+                                    Thread.sleep(20)
                                     robot.keyRelease(k)
                                     pressedKeys.remove(k)
                                 }
@@ -889,11 +963,9 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
                         }
                     }
                 }
-            } while (b.repeatMacro && !Thread.interrupted()) // Loop if toggled and not interrupted
+            } while (b.repeatMacro && !Thread.interrupted())
         } catch (e: InterruptedException) {
-            // Macro was canceled early because the paddle was released
         } finally {
-            // GUARANTEED CLEANUP: Ensure no keys are stuck down
             pressedKeys.forEach { k ->
                 try { robot.keyRelease(k) } catch (e: Exception) {}
             }
