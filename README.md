@@ -16,11 +16,13 @@ ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt 
 
 *Update 1.09* : Load on Start (To use: Check the toggle box then click on "Save and Apply All Settings") 
 
+*Update 1.1* : Update tab added to main screen to streamline updates
+
 📥 Download
 
 Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
 
-👉 [**Download ShadowLink v1.09**](https://drive.google.com/file/d/1oY52IG6VwGc9sFg2Q0MwQF-wDMm-arHb/view?usp=drive_link)
+👉 [**Download ShadowLink v1.1**](https://drive.google.com/file/d/1J-oyUeNtDGvYKElq7Y4FTUjn7zOJFZEI/view?usp=drive_link)
 
 
 🚀 How to UseExtract the ZIP file:
