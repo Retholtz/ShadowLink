@@ -26,7 +26,7 @@ import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.1"
+const val APP_VERSION = "1.11"
 const val GITHUB_REPO = "retholtz/ShadowLink" // Make sure this matches your exact GitHub username/repo
 
 var profiles = mutableListOf<Profile>()
@@ -34,6 +34,7 @@ var activeProfile: Profile = Profile()
 var autoSwitchEnabled = true
 var startMinimized = false
 var loadOnStartup = false
+var isDarkMode = true // NEW: Theme state
 
 // Force the app to use its own directory instead of C:\Windows\System32 on startup
 val appDir = try {
@@ -150,16 +151,20 @@ lateinit var libControls: PaddleUIControls
 
 fun createAndShowGUI() {
     try {
-        UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
+        // Attempt to apply the FlatLaf modern theme
+        if (isDarkMode) {
+            UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarkLaf")
+        } else {
+            UIManager.setLookAndFeel("com.formdev.flatlaf.FlatLightLaf")
+        }
 
         val baseFont = Font("Segoe UI", Font.PLAIN, 15)
-        UIManager.put("Label.font", baseFont)
-        UIManager.put("CheckBox.font", baseFont)
-        UIManager.put("ComboBox.font", baseFont)
-        UIManager.put("Button.font", baseFont)
-        UIManager.put("TextField.font", baseFont)
+        UIManager.put("defaultFont", baseFont) // FlatLaf shortcut to update all fonts easily
         UIManager.put("TitledBorder.font", baseFont.deriveFont(Font.BOLD))
-    } catch (e: Exception) {}
+    } catch (e: Exception) {
+        // Fallback to older Windows system look if the library is completely missing
+        try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) } catch (ex: Exception) {}
+    }
 
     val frame = JFrame("ShadowLink - ROG Raikiri II - v$APP_VERSION")
     frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
@@ -171,7 +176,10 @@ fun createAndShowGUI() {
     topPanel.layout = BoxLayout(topPanel, BoxLayout.Y_AXIS)
     topPanel.border = BorderFactory.createTitledBorder("Profile Management")
 
-    val profileRow = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5))
+    // --- NEW: Layout wrapper to push the Theme Toggle to the far right ---
+    val profileRowWrapper = JPanel(BorderLayout())
+
+    val profileRowLeft = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5))
     profileCombo = JComboBox(profiles.map { it.name }.toTypedArray())
     profileCombo.preferredSize = Dimension(200, 30)
     profileCombo.selectedItem = activeProfile.name
@@ -206,10 +214,31 @@ fun createAndShowGUI() {
         refreshUI()
     }
 
-    profileRow.add(JLabel("Current Profile: "))
-    profileRow.add(profileCombo)
-    profileRow.add(newBtn)
-    profileRow.add(deleteBtn)
+    profileRowLeft.add(JLabel("Current Profile: "))
+    profileRowLeft.add(profileCombo)
+    profileRowLeft.add(newBtn)
+    profileRowLeft.add(deleteBtn)
+    profileRowWrapper.add(profileRowLeft, BorderLayout.WEST)
+
+    // --- Theme Toggle Button (Upper Right) ---
+    val profileRowRight = JPanel(FlowLayout(FlowLayout.RIGHT, 10, 5))
+    val themeToggleBtn = JToggleButton(if (isDarkMode) "Dark Mode" else "Light Mode", isDarkMode)
+    themeToggleBtn.addActionListener {
+        isDarkMode = themeToggleBtn.isSelected
+        themeToggleBtn.text = if (isDarkMode) "Dark Mode" else "Light Mode"
+        try {
+            if (isDarkMode) {
+                UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarkLaf")
+            } else {
+                UIManager.setLookAndFeel("com.formdev.flatlaf.FlatLightLaf")
+            }
+            // Repaint the entire UI instantly
+            SwingUtilities.updateComponentTreeUI(frame)
+        } catch (e: Exception) {}
+    }
+    profileRowRight.add(themeToggleBtn)
+    profileRowWrapper.add(profileRowRight, BorderLayout.EAST)
+    // -------------------------------------------------------------------
 
     val switchRow = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5))
     processField = JTextField(activeProfile.targetProcess, 15)
@@ -239,7 +268,7 @@ fun createAndShowGUI() {
     switchRow.add(activeAppsBtn)
     switchRow.add(autoSwitchBox)
 
-    topPanel.add(profileRow)
+    topPanel.add(profileRowWrapper) // Added the wrapped layout here
     topPanel.add(switchRow)
     frame.add(topPanel, BorderLayout.NORTH)
 
@@ -685,6 +714,10 @@ fun loadAllProfiles() {
             autoSwitchEnabled = global.getProperty("AUTO_SWITCH", "true").toBoolean()
             startMinimized = global.getProperty("START_MINIMIZED", "false").toBoolean()
             loadOnStartup = global.getProperty("LOAD_ON_STARTUP", "false").toBoolean()
+
+            // NEW: Load the saved Theme state (Defaulting to Dark if not found)
+            isDarkMode = global.getProperty("DARK_MODE", "true").toBoolean()
+
             activeProfile = profiles.find { it.name == lastActive } ?: profiles[0]
         } else {
             activeProfile = profiles[0]
@@ -717,6 +750,10 @@ fun saveGlobalConfig() {
     props.setProperty("AUTO_SWITCH", autoSwitchEnabled.toString())
     props.setProperty("START_MINIMIZED", startMinimized.toString())
     props.setProperty("LOAD_ON_STARTUP", loadOnStartup.toString())
+
+    // NEW: Save the current Theme state
+    props.setProperty("DARK_MODE", isDarkMode.toString())
+
     FileOutputStream(globalConfigFile).use { props.store(it, null) }
 }
 
