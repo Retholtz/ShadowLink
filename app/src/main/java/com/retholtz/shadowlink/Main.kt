@@ -24,9 +24,10 @@ import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
+import kotlin.random.Random
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.2" // Restored Check for Updates button
+const val APP_VERSION = "1.25"
 const val GITHUB_REPO = "retholtz/ShadowLink"
 
 var profiles = mutableListOf<Profile>()
@@ -37,6 +38,7 @@ var loadOnStartup = false
 var isDarkMode = true
 var osdPosition = "Bottom Right"
 var controllerScanInterval = 5000 // Global Auto-Detect Rate in ms
+var comboBufferMs = 30 // Microlag buffer to wait for combo presses
 
 @Volatile var activeLayer = 1 // Tracks current layer (1 through 5)
 
@@ -146,7 +148,7 @@ val KEY_MAP = mapOf(
 // --- OSD SYSTEM ---
 
 var osdWindow: JWindow? = null
-var osdTimer: Timer? = null
+var osdTimer: javax.swing.Timer? = null
 
 fun showOSD(message: String) {
     SwingUtilities.invokeLater {
@@ -202,7 +204,7 @@ fun showOSD(message: String) {
         w.isVisible = true
         osdWindow = w
 
-        osdTimer = Timer(2000) {
+        osdTimer = javax.swing.Timer(2000) {
             w.dispose()
         }.apply {
             isRepeats = false
@@ -274,8 +276,8 @@ fun refreshLayerLocks() {
         ui.m2.isReserved = (reservedBtn == "M2"); ui.m2.refreshVis()
         ui.m3.isReserved = (reservedBtn == "M3"); ui.m3.refreshVis()
         ui.m4.isReserved = (reservedBtn == "M4"); ui.m4.refreshVis()
-        ui.cmd.isReserved = (reservedBtn == "CMD"); ui.cmd.refreshVis()
-        ui.lib.isReserved = (reservedBtn == "LIB"); ui.lib.refreshVis()
+        ui.cmd.isReserved = (reservedBtn == "Command"); ui.cmd.refreshVis()
+        ui.lib.isReserved = (reservedBtn == "Library"); ui.lib.refreshVis()
 
         ui.m1m2.isReserved = (reservedCombo == "M1+M2"); ui.m1m2.refreshVis()
         ui.m1m3.isReserved = (reservedCombo == "M1+M3"); ui.m1m3.refreshVis()
@@ -340,6 +342,28 @@ fun createAndShowGUI() {
         }
     }
 
+    val cloneBtn = JButton("Clone Profile")
+    cloneBtn.toolTipText = "Duplicate current profile"
+    cloneBtn.addActionListener {
+        val name = JOptionPane.showInputDialog(frame, "Enter New Profile Name (Clone of ${activeProfile.name}):")
+        if (!name.isNullOrBlank()) {
+            val clonedLayers = activeProfile.layers.map { layer ->
+                layer.copy(
+                    m1 = layer.m1.copy(), m2 = layer.m2.copy(), m3 = layer.m3.copy(), m4 = layer.m4.copy(),
+                    cmd = layer.cmd.copy(), lib = layer.lib.copy(),
+                    m1_m2 = layer.m1_m2.copy(), m1_m3 = layer.m1_m3.copy(), m1_m4 = layer.m1_m4.copy(),
+                    m2_m3 = layer.m2_m3.copy(), m2_m4 = layer.m2_m4.copy(), m3_m4 = layer.m3_m4.copy()
+                )
+            }
+            val p = activeProfile.copy(name = name, layers = clonedLayers)
+            profiles.add(p)
+            saveProfile(p)
+            reloadProfileDropdown()
+            profileCombo.selectedItem = name
+            refreshUI()
+        }
+    }
+
     val deleteBtn = JButton("Delete Profile")
     deleteBtn.addActionListener {
         if (profiles.size <= 1) return@addActionListener
@@ -394,6 +418,7 @@ fun createAndShowGUI() {
     profileRowLeft.add(JLabel("Current Profile: "))
     profileRowLeft.add(profileCombo)
     profileRowLeft.add(newBtn)
+    profileRowLeft.add(cloneBtn)
     profileRowLeft.add(deleteBtn)
     profileRowLeft.add(importBtn)
     profileRowLeft.add(exportBtn)
@@ -467,23 +492,23 @@ fun createAndShowGUI() {
 
         val leftCol = JPanel(GridLayout(6, 1, 5, 5))
         leftCol.border = BorderFactory.createTitledBorder("Single Buttons")
-        val m1C = createPaddleRow("M1 (Bot-L)", activeProfile.layers[i].m1)
-        val m2C = createPaddleRow("M2 (Top-L)", activeProfile.layers[i].m2)
-        val m3C = createPaddleRow("M3 (Top-R)", activeProfile.layers[i].m3)
-        val m4C = createPaddleRow("M4 (Bot-R)", activeProfile.layers[i].m4)
-        val cmdC = createPaddleRow("Command", activeProfile.layers[i].cmd)
-        val libC = createPaddleRow("Library", activeProfile.layers[i].lib)
+        val m1C = createPaddleRow(frame, "M1 (Bot-L)", activeProfile.layers[i].m1)
+        val m2C = createPaddleRow(frame, "M2 (Top-L)", activeProfile.layers[i].m2)
+        val m3C = createPaddleRow(frame, "M3 (Top-R)", activeProfile.layers[i].m3)
+        val m4C = createPaddleRow(frame, "M4 (Bot-R)", activeProfile.layers[i].m4)
+        val cmdC = createPaddleRow(frame, "Command", activeProfile.layers[i].cmd)
+        val libC = createPaddleRow(frame, "Library", activeProfile.layers[i].lib)
         leftCol.add(m1C.panel); leftCol.add(m2C.panel); leftCol.add(m3C.panel)
         leftCol.add(m4C.panel); leftCol.add(cmdC.panel); leftCol.add(libC.panel)
 
         val rightCol = JPanel(GridLayout(6, 1, 5, 5))
         rightCol.border = BorderFactory.createTitledBorder("Combo Buttons")
-        val m1m2C = createPaddleRow("M1 + M2", activeProfile.layers[i].m1_m2)
-        val m1m3C = createPaddleRow("M1 + M3", activeProfile.layers[i].m1_m3)
-        val m1m4C = createPaddleRow("M1 + M4", activeProfile.layers[i].m1_m4)
-        val m2m3C = createPaddleRow("M2 + M3", activeProfile.layers[i].m2_m3)
-        val m2m4C = createPaddleRow("M2 + M4", activeProfile.layers[i].m2_m4)
-        val m3m4C = createPaddleRow("M3 + M4", activeProfile.layers[i].m3_m4)
+        val m1m2C = createPaddleRow(frame, "M1 + M2", activeProfile.layers[i].m1_m2)
+        val m1m3C = createPaddleRow(frame, "M1 + M3", activeProfile.layers[i].m1_m3)
+        val m1m4C = createPaddleRow(frame, "M1 + M4", activeProfile.layers[i].m1_m4)
+        val m2m3C = createPaddleRow(frame, "M2 + M3", activeProfile.layers[i].m2_m3)
+        val m2m4C = createPaddleRow(frame, "M2 + M4", activeProfile.layers[i].m2_m4)
+        val m3m4C = createPaddleRow(frame, "M3 + M4", activeProfile.layers[i].m3_m4)
         rightCol.add(m1m2C.panel); rightCol.add(m1m3C.panel); rightCol.add(m1m4C.panel)
         rightCol.add(m2m3C.panel); rightCol.add(m2m4C.panel); rightCol.add(m3m4C.panel)
 
@@ -532,9 +557,11 @@ fun createAndShowGUI() {
 
     // Advanced Global Settings Section
     layerSettingsPanel.add(Box.createRigidArea(Dimension(0, 20)))
-    val advancedInfo = JLabel("<html><b>Advanced Global Settings</b><br>Controller Auto-Detect Rate determines how often the app searches for your controller if it is unplugged or goes to sleep. Lower values reconnect faster but use slightly more background CPU. <i>(Requires app restart to take effect)</i></html>")
+    val advancedInfo = JLabel("<html><b>Advanced Global Settings</b><br><b>Controller Auto-Detect Rate</b> determines how often the app searches for your controller. <i>(Requires app restart)</i><br><b>Combo Input Delay</b> adds a tiny buffer allowing you to trigger combos without misfiring single buttons!</html>")
     advancedInfo.border = BorderFactory.createEmptyBorder(0, 0, 15, 0)
     layerSettingsPanel.add(advancedInfo)
+
+    val advancedPanel = JPanel(GridLayout(2, 1, 5, 5))
 
     val scanPanel = JPanel(FlowLayout(FlowLayout.LEFT))
     scanPanel.add(JLabel("Controller Auto-Detect Rate:"))
@@ -546,7 +573,19 @@ fun createAndShowGUI() {
         controllerScanInterval = scanMap.entries.firstOrNull { it.value == selectedText }?.key ?: 5000
     }
     scanPanel.add(scanCombo)
-    layerSettingsPanel.add(scanPanel)
+    advancedPanel.add(scanPanel)
+
+    val bufferPanel = JPanel(FlowLayout(FlowLayout.LEFT))
+    bufferPanel.add(JLabel("Combo Input Delay (Microlag Buffer):"))
+    val bufferSpinner = JSpinner(SpinnerNumberModel(comboBufferMs, 0, 500, 5))
+    bufferSpinner.addChangeListener {
+        comboBufferMs = bufferSpinner.value as Int
+    }
+    bufferPanel.add(bufferSpinner)
+    bufferPanel.add(JLabel("ms (0 = Instant/No Buffer, 30 = Recommended)"))
+    advancedPanel.add(bufferPanel)
+
+    layerSettingsPanel.add(advancedPanel)
 
     tabbedPane.addTab("Controller/Layer Settings", layerSettingsPanel)
 
@@ -754,6 +793,120 @@ fun showActiveProcessDialog(parent: JFrame) {
     dialog.isVisible = true
 }
 
+// --- MACRO RECORDER DIALOG ---
+fun openMacroRecorder(parent: JFrame, targetField: JTextField) {
+    val d = JDialog(parent, "Live Macro Recorder", true)
+    d.setSize(600, 450)
+    d.setLocationRelativeTo(parent)
+    d.layout = BorderLayout(10, 10)
+
+    val textArea = JTextArea().apply {
+        isEditable = false
+        lineWrap = true
+        wrapStyleWord = true
+        text = targetField.text
+        font = Font("Monospaced", Font.PLAIN, 14)
+    }
+
+    val textScroll = JScrollPane(textArea).apply {
+        border = BorderFactory.createTitledBorder("Recorded Macro String:")
+    }
+
+    var recording = false
+    var lastTime = 0L
+    val tokens = mutableListOf<String>()
+    if (textArea.text.isNotBlank()) {
+        tokens.addAll(textArea.text.split(",").map { it.trim() })
+    }
+
+    fun addToken(t: String) {
+        if (!recording) return
+        val now = System.currentTimeMillis()
+        if (lastTime > 0L) {
+            val delay = now - lastTime
+            if (delay > 10) tokens.add(delay.toString())
+        }
+        tokens.add(t)
+        lastTime = now
+        SwingUtilities.invokeLater { textArea.text = tokens.joinToString(", ") }
+    }
+
+    val capturePanel = object : JPanel() {
+        init {
+            isFocusable = true
+            background = UIManager.getColor("Panel.background")
+            border = BorderFactory.createTitledBorder("Click here to focus, then perform your Macro...")
+            preferredSize = Dimension(450, 80)
+
+            addKeyListener(object : KeyAdapter() {
+                override fun keyPressed(e: KeyEvent) {
+                    val mapped = KEY_MAP.entries.find { it.value == e.keyCode }?.key ?: return
+                    addToken("$mapped down")
+                }
+                override fun keyReleased(e: KeyEvent) {
+                    val mapped = KEY_MAP.entries.find { it.value == e.keyCode }?.key ?: return
+                    addToken("$mapped up")
+                }
+            })
+
+            addMouseListener(object : MouseAdapter() {
+                override fun mousePressed(e: MouseEvent) {
+                    val btn = when(e.button) { 1 -> "LClick down"; 2 -> "MClick down"; 3 -> "RClick down"; else -> return }
+                    addToken(btn)
+                }
+                override fun mouseReleased(e: MouseEvent) {
+                    val btn = when(e.button) { 1 -> "LClick up"; 2 -> "MClick up"; 3 -> "RClick up"; else -> return }
+                    addToken(btn)
+                }
+            })
+        }
+    }
+
+    val btnPanel = JPanel(FlowLayout())
+    val startBtn = JButton("Start Recording")
+    val stopBtn = JButton("Stop").apply { isEnabled = false }
+    val clearBtn = JButton("Clear")
+    val saveBtn = JButton("Save to Macro")
+
+    startBtn.addActionListener {
+        recording = true
+        lastTime = 0L
+        startBtn.isEnabled = false
+        stopBtn.isEnabled = true
+        capturePanel.requestFocusInWindow()
+        capturePanel.background = Color(255, 200, 200)
+    }
+
+    stopBtn.addActionListener {
+        recording = false
+        lastTime = 0L
+        startBtn.isEnabled = true
+        stopBtn.isEnabled = false
+        capturePanel.background = UIManager.getColor("Panel.background")
+    }
+
+    clearBtn.addActionListener {
+        tokens.clear()
+        textArea.text = ""
+    }
+
+    saveBtn.addActionListener {
+        targetField.text = tokens.joinToString(", ")
+        d.dispose()
+    }
+
+    btnPanel.add(startBtn); btnPanel.add(stopBtn); btnPanel.add(clearBtn); btnPanel.add(saveBtn)
+
+    val bottomContainer = JPanel(BorderLayout())
+    bottomContainer.add(capturePanel, BorderLayout.CENTER)
+    bottomContainer.add(btnPanel, BorderLayout.SOUTH)
+
+    d.add(textScroll, BorderLayout.CENTER)
+    d.add(bottomContainer, BorderLayout.SOUTH)
+
+    d.isVisible = true
+}
+
 // --- LOGIC ---
 
 fun getProcessNameFromHwnd(hwnd: HWND): String {
@@ -862,25 +1015,52 @@ fun runAutoSwitchWatchdog() {
 // --- SNIFFER ---
 
 class ButtonState(
-    var pressed: Boolean = false,
-    var macroThread: Thread? = null,
-    var stepIndex: Int = 0,
-    var activeBind: PaddleBind? = null
+    @Volatile var pressed: Boolean = false,
+    @Volatile var macroThread: Thread? = null,
+    @Volatile var stepIndex: Int = 0,
+    @Volatile var activeBind: PaddleBind? = null,
+    @Volatile var singleActionFired: Boolean = false,
+    @Volatile var comboConsumed: Boolean = false, // Prevents roll-off misfires
+    var pendingTask: java.util.TimerTask? = null
 ) {
+    @Synchronized
+    fun cancelPending() {
+        pendingTask?.cancel()
+        pendingTask = null
+    }
+
+    @Synchronized
+    fun fire(robot: Robot, bind: PaddleBind) {
+        macroThread?.interrupt()
+        activeBind = bind
+        if (bind.isMacro) {
+            if (bind.stepThrough) executeMacroStep(robot, bind, this)
+            else macroThread = executeMacro(robot, bind, this)
+        } else {
+            pressKeyBind(robot, bind)
+        }
+    }
+
+    @Synchronized
     fun releaseIfActive(robot: Robot) {
         val releaseTarget = this.activeBind
         if (releaseTarget != null && releaseTarget.enabled) {
             if (releaseTarget.isMacro) {
-                if (!releaseTarget.stepThrough) {
-                    this.macroThread?.interrupt()
-                    this.macroThread = null
+                if (releaseTarget.repeatMacro) {
+                    this.macroThread = null // Detaches repeat thread
                 }
             } else {
                 releaseKeyBind(robot, releaseTarget)
             }
         }
         this.activeBind = null
-        this.pressed = false
+    }
+
+    @Synchronized
+    fun cancelAndRelease(robot: Robot) {
+        cancelPending()
+        releaseIfActive(robot)
+        pressed = false
     }
 }
 
@@ -916,6 +1096,8 @@ fun runControllerSniffer() {
             if (raikiri.open()) {
                 isConnected = true
                 readingThread = Thread {
+                    val actionTimer = java.util.Timer("ShadowLink-ActionTimer", true)
+
                     val m1State = ButtonState(); val m2State = ButtonState()
                     val m3State = ButtonState(); val m4State = ButtonState()
                     val cmdState = ButtonState(); val libState = ButtonState()
@@ -926,146 +1108,182 @@ fun runControllerSniffer() {
 
                     var wasToggleTriggered = false
 
-                    while (isConnected) {
-                        try {
-                            val data = ByteArray(64)
-                            val read = raikiri.read(data, 500)
-                            if (read > 0 && (data[0].toInt() and 0xFF) == 0xB3) {
-                                val p = activeProfile
-                                val isAltMode = data[3].toInt() == 2
+                    try {
+                        while (isConnected) {
+                            try {
+                                val data = ByteArray(64)
+                                val read = raikiri.read(data, 500)
+                                if (read > 0 && (data[0].toInt() and 0xFF) == 0xB3) {
+                                    val p = activeProfile
+                                    val isAltMode = data[3].toInt() == 2
 
-                                val s1 = !isAltMode && data[8].toInt() == 1
-                                val s2 = !isAltMode && data[6].toInt() == 1
-                                val s3 = !isAltMode && data[5].toInt() == 1
-                                val s4 = !isAltMode && data[7].toInt() == 1
+                                    val s1 = !isAltMode && data[8].toInt() == 1
+                                    val s2 = !isAltMode && data[6].toInt() == 1
+                                    val s3 = !isAltMode && data[5].toInt() == 1
+                                    val s4 = !isAltMode && data[7].toInt() == 1
 
-                                val sCmd = isAltMode && data[5].toInt() == 1
-                                val sLib = isAltMode && data[6].toInt() == 1
+                                    val sCmd = isAltMode && data[5].toInt() == 1
+                                    val sLib = isAltMode && data[6].toInt() == 1
 
-                                val states = mapOf("M1" to s1, "M2" to s2, "M3" to s3, "M4" to s4, "CMD" to sCmd, "LIB" to sLib)
+                                    val states = mapOf("M1" to s1, "M2" to s2, "M3" to s3, "M4" to s4, "Command" to sCmd, "Library" to sLib)
 
-                                val t1 = p.toggleButton1
-                                val t2 = p.toggleButton2
+                                    val t1 = p.toggleButton1
+                                    val t2 = p.toggleButton2
 
-                                val t1Pressed = if (t1 != "None") states[t1] == true else false
-                                val t2Pressed = if (t2 != "None") states[t2] == true else false
+                                    val t1Pressed = if (t1 != "None") states[t1] == true else false
+                                    val t2Pressed = if (t2 != "None") states[t2] == true else false
 
-                                val isSingleToggle = (t1 != "None" && t2 == "None") || (t1 == "None" && t2 != "None") || (t1 != "None" && t1 == t2)
-                                val singleToggleBtn = if (t1 != "None") t1 else t2
+                                    val isSingleToggle = (t1 != "None" && t2 == "None") || (t1 == "None" && t2 != "None") || (t1 != "None" && t1 == t2)
+                                    val singleToggleBtn = if (t1 != "None") t1 else t2
 
-                                val isComboTriggered = if (!isSingleToggle && t1 != "None" && t2 != "None") {
-                                    t1Pressed && t2Pressed
-                                } else if (isSingleToggle) {
-                                    if (t1 != "None") t1Pressed else t2Pressed
-                                } else {
-                                    false
-                                }
-
-                                val consumed = mutableSetOf<String>()
-
-                                if (isComboTriggered && !wasToggleTriggered) {
-                                    wasToggleTriggered = true
-
-                                    // Preemptively release active binds before shifting
-                                    m1State.releaseIfActive(robot); m2State.releaseIfActive(robot)
-                                    m3State.releaseIfActive(robot); m4State.releaseIfActive(robot)
-                                    cmdState.releaseIfActive(robot); libState.releaseIfActive(robot)
-
-                                    val availableLayers = p.layers.mapIndexedNotNull { index, layer -> if (layer.enabled) index + 1 else null }
-                                    if (availableLayers.isNotEmpty()) {
-                                        val currentIndex = availableLayers.indexOf(activeLayer)
-                                        activeLayer = if (currentIndex != -1 && currentIndex + 1 < availableLayers.size) {
-                                            availableLayers[currentIndex + 1]
-                                        } else {
-                                            availableLayers[0]
-                                        }
-                                        showOSD(p.layers[activeLayer - 1].name)
-                                    }
-                                } else if (!isComboTriggered) {
-                                    wasToggleTriggered = false
-                                }
-
-                                // Suspend inputs used by global layer toggle
-                                if (isComboTriggered) {
-                                    if (t1 != "None") consumed.add(t1)
-                                    if (t2 != "None") consumed.add(t2)
-                                } else if (isSingleToggle && singleToggleBtn != "None") {
-                                    // Single toggle gets permanently suspended from individual action use
-                                    consumed.add(singleToggleBtn)
-                                }
-
-                                val currentLayerConfig = p.layers[activeLayer - 1]
-
-                                fun handleCombo(name1: String, sA: Boolean, name2: String, sB: Boolean, bs: ButtonState, bind: PaddleBind, stateA: ButtonState, stateB: ButtonState) {
-                                    if (sA && sB && bind.enabled && !consumed.contains(name1) && !consumed.contains(name2)) {
-                                        consumed.add(name1)
-                                        consumed.add(name2)
-                                        if (!bs.pressed) {
-                                            // Cancel singles before firing combo
-                                            stateA.releaseIfActive(robot)
-                                            stateB.releaseIfActive(robot)
-
-                                            bs.activeBind = bind
-                                            if (bind.isMacro) {
-                                                if (bind.stepThrough) executeMacroStep(robot, bind, bs)
-                                                else bs.macroThread = executeMacro(robot, bind)
-                                            } else {
-                                                pressKeyBind(robot, bind)
-                                            }
-                                            bs.pressed = true
-                                        }
+                                    val isComboTriggered = if (!isSingleToggle && t1 != "None" && t2 != "None") {
+                                        t1Pressed && t2Pressed
+                                    } else if (isSingleToggle) {
+                                        if (t1 != "None") t1Pressed else t2Pressed
                                     } else {
-                                        if (bs.pressed) {
-                                            bs.releaseIfActive(robot)
-                                        }
+                                        false
                                     }
-                                }
 
-                                // Evaluate Combo Binds first
-                                handleCombo("M1", s1, "M2", s2, m1m2State, currentLayerConfig.m1_m2, m1State, m2State)
-                                handleCombo("M1", s1, "M3", s3, m1m3State, currentLayerConfig.m1_m3, m1State, m3State)
-                                handleCombo("M1", s1, "M4", s4, m1m4State, currentLayerConfig.m1_m4, m1State, m4State)
-                                handleCombo("M2", s2, "M3", s3, m2m3State, currentLayerConfig.m2_m3, m2State, m3State)
-                                handleCombo("M2", s2, "M4", s4, m2m4State, currentLayerConfig.m2_m4, m2State, m4State)
-                                handleCombo("M3", s3, "M4", s4, m3m4State, currentLayerConfig.m3_m4, m3State, m4State)
+                                    val consumed = mutableSetOf<String>()
 
-                                // Evaluate Single Binds
-                                fun handleSingle(name: String, state: Boolean, bs: ButtonState, bind: PaddleBind) {
-                                    if (consumed.contains(name)) {
-                                        if (bs.pressed) bs.releaseIfActive(robot)
-                                        return
-                                    }
-                                    if (state && !bs.pressed) {
-                                        if (bind.enabled) {
-                                            bs.activeBind = bind
-                                            if (bind.isMacro) {
-                                                if (bind.stepThrough) executeMacroStep(robot, bind, bs)
-                                                else bs.macroThread = executeMacro(robot, bind)
+                                    if (isComboTriggered && !wasToggleTriggered) {
+                                        wasToggleTriggered = true
+
+                                        // Preemptively cancel and release active binds before shifting
+                                        m1State.cancelAndRelease(robot); m2State.cancelAndRelease(robot)
+                                        m3State.cancelAndRelease(robot); m4State.cancelAndRelease(robot)
+                                        cmdState.cancelAndRelease(robot); libState.cancelAndRelease(robot)
+
+                                        m1m2State.cancelAndRelease(robot); m1m3State.cancelAndRelease(robot)
+                                        m1m4State.cancelAndRelease(robot); m2m3State.cancelAndRelease(robot)
+                                        m2m4State.cancelAndRelease(robot); m3m4State.cancelAndRelease(robot)
+
+                                        val availableLayers = p.layers.mapIndexedNotNull { index, layer -> if (layer.enabled) index + 1 else null }
+                                        if (availableLayers.isNotEmpty()) {
+                                            val currentIndex = availableLayers.indexOf(activeLayer)
+                                            activeLayer = if (currentIndex != -1 && currentIndex + 1 < availableLayers.size) {
+                                                availableLayers[currentIndex + 1]
                                             } else {
-                                                pressKeyBind(robot, bind)
+                                                availableLayers[0]
+                                            }
+                                            showOSD(p.layers[activeLayer - 1].name)
+                                        }
+                                    } else if (!isComboTriggered) {
+                                        wasToggleTriggered = false
+                                    }
+
+                                    // Suspend inputs used by global layer toggle
+                                    if (isComboTriggered) {
+                                        if (t1 != "None") consumed.add(t1)
+                                        if (t2 != "None") consumed.add(t2)
+                                    } else if (isSingleToggle && singleToggleBtn != "None") {
+                                        // Single toggle gets permanently suspended from individual action use
+                                        consumed.add(singleToggleBtn)
+                                    }
+
+                                    val currentLayerConfig = p.layers[activeLayer - 1]
+
+                                    fun handleCombo(name1: String, sA: Boolean, name2: String, sB: Boolean, bs: ButtonState, bind: PaddleBind, stateA: ButtonState, stateB: ButtonState) {
+                                        if (sA && sB && bind.enabled && !consumed.contains(name1) && !consumed.contains(name2)) {
+                                            consumed.add(name1)
+                                            consumed.add(name2)
+                                            if (!bs.pressed) {
+                                                // Cancel pending singles before firing combo
+                                                stateA.cancelPending()
+                                                stateB.cancelPending()
+
+                                                // If singles fired before we could catch the combo, roll them off cleanly
+                                                if (stateA.singleActionFired) stateA.releaseIfActive(robot)
+                                                if (stateB.singleActionFired) stateB.releaseIfActive(robot)
+
+                                                // Flag singles as consumed so they don't fire rapidly on release
+                                                stateA.comboConsumed = true
+                                                stateB.comboConsumed = true
+
+                                                bs.pressed = true
+                                                bs.singleActionFired = true
+                                                bs.fire(robot, bind)
+                                            }
+                                        } else {
+                                            if (bs.pressed) {
+                                                bs.releaseIfActive(robot)
+                                                bs.pressed = false
                                             }
                                         }
-                                        bs.pressed = true
-                                    } else if (!state && bs.pressed) {
-                                        bs.releaseIfActive(robot)
                                     }
+
+                                    // Evaluate Combo Binds first
+                                    handleCombo("M1", s1, "M2", s2, m1m2State, currentLayerConfig.m1_m2, m1State, m2State)
+                                    handleCombo("M1", s1, "M3", s3, m1m3State, currentLayerConfig.m1_m3, m1State, m3State)
+                                    handleCombo("M1", s1, "M4", s4, m1m4State, currentLayerConfig.m1_m4, m1State, m4State)
+                                    handleCombo("M2", s2, "M3", s3, m2m3State, currentLayerConfig.m2_m3, m2State, m3State)
+                                    handleCombo("M2", s2, "M4", s4, m2m4State, currentLayerConfig.m2_m4, m2State, m4State)
+                                    handleCombo("M3", s3, "M4", s4, m3m4State, currentLayerConfig.m3_m4, m3State, m4State)
+
+                                    // Evaluate Single Binds
+                                    fun handleSingle(name: String, state: Boolean, bs: ButtonState, bind: PaddleBind) {
+                                        if (consumed.contains(name)) {
+                                            if (!bs.pressed) bs.pressed = true // Hardware is held
+                                            bs.cancelPending()
+                                            if (bs.singleActionFired) {
+                                                bs.releaseIfActive(robot)
+                                                bs.singleActionFired = false
+                                            }
+                                            bs.comboConsumed = true
+                                            return
+                                        }
+
+                                        if (state && !bs.pressed) {
+                                            bs.pressed = true
+                                            bs.singleActionFired = false
+                                            bs.comboConsumed = false
+
+                                            if (bind.enabled) {
+                                                if (comboBufferMs > 0) {
+                                                    bs.pendingTask = object : java.util.TimerTask() {
+                                                        override fun run() {
+                                                            if (!bs.comboConsumed) {
+                                                                bs.singleActionFired = true
+                                                                bs.fire(robot, bind)
+                                                            }
+                                                        }
+                                                    }
+                                                    actionTimer.schedule(bs.pendingTask, comboBufferMs.toLong())
+                                                } else {
+                                                    bs.singleActionFired = true
+                                                    bs.fire(robot, bind)
+                                                }
+                                            }
+                                        } else if (!state && bs.pressed) {
+                                            bs.cancelPending()
+                                            if (bind.enabled && !bs.singleActionFired && !bs.comboConsumed) {
+                                                // Key released before buffer expired (a rapid tap), fire it now
+                                                bs.fire(robot, bind)
+                                            }
+                                            bs.releaseIfActive(robot)
+                                            bs.pressed = false
+                                            bs.comboConsumed = false
+                                        }
+                                    }
+
+                                    handleSingle("M1", s1, m1State, currentLayerConfig.m1)
+                                    handleSingle("M2", s2, m2State, currentLayerConfig.m2)
+                                    handleSingle("M3", s3, m3State, currentLayerConfig.m3)
+                                    handleSingle("M4", s4, m4State, currentLayerConfig.m4)
+                                    handleSingle("Command", sCmd, cmdState, currentLayerConfig.cmd)
+                                    handleSingle("Library", sLib, libState, currentLayerConfig.lib)
+
+                                } else if (read < 0) {
+                                    isConnected = false
+                                    raikiri.close()
                                 }
-
-                                handleSingle("M1", s1, m1State, currentLayerConfig.m1)
-                                handleSingle("M2", s2, m2State, currentLayerConfig.m2)
-                                handleSingle("M3", s3, m3State, currentLayerConfig.m3)
-                                handleSingle("M4", s4, m4State, currentLayerConfig.m4)
-                                handleSingle("CMD", sCmd, cmdState, currentLayerConfig.cmd)
-                                handleSingle("LIB", sLib, libState, currentLayerConfig.lib)
-
-                            } else if (read < 0) {
+                            } catch (e: Exception) {
                                 isConnected = false
                                 raikiri.close()
                             }
-                        } catch (e: Exception) {
-                            isConnected = false
-                            raikiri.close()
                         }
+                    } finally {
+                        actionTimer.cancel()
                     }
                 }
                 readingThread?.start()
@@ -1115,8 +1333,8 @@ fun loadAllProfiles() {
                 else if (props.getProperty("M2_LT", "false").toBoolean()) p.toggleButton1 = "M2"
                 else if (props.getProperty("M3_LT", "false").toBoolean()) p.toggleButton1 = "M3"
                 else if (props.getProperty("M4_LT", "false").toBoolean()) p.toggleButton1 = "M4"
-                else if (props.getProperty("CMD_LT", "false").toBoolean()) p.toggleButton1 = "CMD"
-                else if (props.getProperty("LIB_LT", "false").toBoolean()) p.toggleButton1 = "LIB"
+                else if (props.getProperty("CMD_LT", "false").toBoolean()) p.toggleButton1 = "Command"
+                else if (props.getProperty("LIB_LT", "false").toBoolean()) p.toggleButton1 = "Library"
             }
 
             fun loadB(prefix: String, b: PaddleBind) {
@@ -1165,6 +1383,7 @@ fun loadAllProfiles() {
             isDarkMode = global.getProperty("DARK_MODE", "true").toBoolean()
             osdPosition = global.getProperty("OSD_POSITION", "Bottom Right")
             controllerScanInterval = global.getProperty("SCAN_INTERVAL", "5000").toIntOrNull() ?: 5000
+            comboBufferMs = global.getProperty("COMBO_BUFFER_MS", "30").toIntOrNull() ?: 30
 
             activeProfile = profiles.find { it.name == lastActive } ?: profiles[0]
         } else {
@@ -1216,6 +1435,7 @@ fun saveGlobalConfig() {
     props.setProperty("DARK_MODE", isDarkMode.toString())
     props.setProperty("OSD_POSITION", osdPosition)
     props.setProperty("SCAN_INTERVAL", controllerScanInterval.toString())
+    props.setProperty("COMBO_BUFFER_MS", comboBufferMs.toString())
 
     FileOutputStream(globalConfigFile).use { props.store(it, null) }
 }
@@ -1278,7 +1498,7 @@ class PaddleUIControls(
     val repeatMacroBox: JCheckBox, val stepThroughBox: JCheckBox, val macroField: JTextField,
     val shiftBox: JCheckBox, val ctrlBox: JCheckBox,
     val altBox: JCheckBox, val winBox: JCheckBox, val keyDropdown: JComboBox<String>,
-    val reservedLabel: JLabel
+    val reservedLabel: JLabel, val recordBtn: JButton
 ) {
     var isReserved: Boolean = false
 
@@ -1290,6 +1510,7 @@ class PaddleUIControls(
 
         isMacroBox.isEnabled = e
         macroField.isEnabled = e && m
+        recordBtn.isEnabled = e && m
 
         if (repeatMacroBox.isSelected) stepThroughBox.isSelected = false
         if (stepThroughBox.isSelected) repeatMacroBox.isSelected = false
@@ -1301,7 +1522,9 @@ class PaddleUIControls(
         shiftBox.isEnabled = e && !m; ctrlBox.isEnabled = e && !m
         altBox.isEnabled = e && !m; winBox.isEnabled = e && !m
 
-        macroField.isVisible = m && !isReserved; repeatMacroBox.isVisible = m && !isReserved; stepThroughBox.isVisible = m && !isReserved
+        macroField.isVisible = m && !isReserved; repeatMacroBox.isVisible = m && !isReserved
+        stepThroughBox.isVisible = m && !isReserved; recordBtn.isVisible = m && !isReserved
+
         keyDropdown.isVisible = !m && !isReserved; shiftBox.isVisible = !m && !isReserved; ctrlBox.isVisible = !m && !isReserved
         altBox.isVisible = !m && !isReserved; winBox.isVisible = !m && !isReserved
 
@@ -1311,19 +1534,20 @@ class PaddleUIControls(
     }
 }
 
-fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
-    val panel = JPanel(FlowLayout(FlowLayout.CENTER, 10, 10))
+fun createPaddleRow(parentFrame: JFrame, name: String, bind: PaddleBind): PaddleUIControls {
+    val panel = JPanel(FlowLayout(FlowLayout.CENTER, 5, 5))
     panel.add(JLabel("$name: "))
-    val en = JCheckBox("Enabled", bind.enabled)
-    val mac = JCheckBox("Macro", bind.isMacro)
-    val rep = JCheckBox("Repeat", bind.repeatMacro)
-    val stp = JCheckBox("Step", bind.stepThrough)
-    val txt = JTextField(bind.macroText, 15)
 
-    val sh = JCheckBox("Shift", bind.shift)
-    val ct = JCheckBox("Ctrl", bind.ctrl)
-    val al = JCheckBox("Alt", bind.alt)
-    val wi = JCheckBox("Win", bind.win)
+    val en = JCheckBox("Enabled", bind.enabled).apply { margin = Insets(0, 0, 0, 0) }
+    val mac = JCheckBox("Macro", bind.isMacro).apply { margin = Insets(0, 0, 0, 0) }
+    val rep = JCheckBox("Repeat", bind.repeatMacro).apply { margin = Insets(0, 0, 0, 0) }
+    val stp = JCheckBox("Step", bind.stepThrough).apply { margin = Insets(0, 0, 0, 0) }
+    val txt = JTextField(bind.macroText, 12)
+
+    val sh = JCheckBox("Shift", bind.shift).apply { margin = Insets(0, 0, 0, 0) }
+    val ct = JCheckBox("Ctrl", bind.ctrl).apply { margin = Insets(0, 0, 0, 0) }
+    val al = JCheckBox("Alt", bind.alt).apply { margin = Insets(0, 0, 0, 0) }
+    val wi = JCheckBox("Win", bind.win).apply { margin = Insets(0, 0, 0, 0) }
 
     val key = JComboBox(SUPPORTED_KEYS).apply { selectedItem = bind.keyChar }
 
@@ -1333,7 +1557,14 @@ fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
         isVisible = false
     }
 
-    val uiControls = PaddleUIControls(panel, en, mac, rep, stp, txt, sh, ct, al, wi, key, resLbl)
+    val recBtn = JButton("⏺").apply {
+        foreground = Color.RED
+        margin = Insets(2, 4, 2, 4)
+        toolTipText = "Open Macro Recorder"
+        addActionListener { openMacroRecorder(parentFrame, txt) }
+    }
+
+    val uiControls = PaddleUIControls(panel, en, mac, rep, stp, txt, sh, ct, al, wi, key, resLbl, recBtn)
 
     en.addActionListener { uiControls.refreshVis() }
     mac.addActionListener { uiControls.refreshVis() }
@@ -1341,8 +1572,8 @@ fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
     stp.addActionListener { if (stp.isSelected) rep.isSelected = false; uiControls.refreshVis() }
 
     panel.add(en); panel.add(mac); panel.add(rep); panel.add(stp)
-    panel.add(sh); panel.add(ct); panel.add(al); panel.add(wi); panel.add(key); panel.add(txt)
-    panel.add(resLbl)
+    panel.add(sh); panel.add(ct); panel.add(al); panel.add(wi); panel.add(key)
+    panel.add(recBtn); panel.add(txt); panel.add(resLbl)
 
     uiControls.refreshVis()
     return uiControls
@@ -1430,9 +1661,9 @@ fun setupSystemTray(frame: JFrame) {
 fun showMacroInstructions(parent: JFrame) {
     val helpText = """
         <html>
-        <body style='width: 400px; font-family: sans-serif;'>
-        <h2>Macro Creation Guide</h2>
-        <p>Macros allow you to execute a sequence of keystrokes and delays. Separate each action with a comma.</p>
+        <body style='width: 450px; font-family: sans-serif;'>
+        <h2>Advanced Macro Creation Guide</h2>
+        <p>Macros allow you to execute sequences of keystrokes, delays, and mouse movements. Separate each action with a comma.</p>
         
         <h3>Action Types:</h3>
         <ul>
@@ -1440,18 +1671,15 @@ fun showMacroInstructions(parent: JFrame) {
             <li><b>Mouse Clicks:</b> Use <b>LClick</b>, <b>RClick</b>, or <b>MClick</b>.</li>
             <li><b>Hold a Key:</b> Type the key name followed by "down". <i>(e.g., <b>Ctrl down</b>)</i></li>
             <li><b>Release a Key:</b> Type the key name followed by "up". <i>(e.g., <b>Ctrl up</b>)</i></li>
-            <li><b>Delay:</b> Type a number to wait in milliseconds. <i>(e.g., <b>500</b> waits half a second)</i></li>
+            <li><b>Static Delay:</b> Type a number to wait in milliseconds. <i>(e.g., <b>500</b>)</i></li>
+            <li><b>Random Delay:</b> Type a range separated by a tilde to humanize inputs! <i>(e.g., <b>50~150</b> waits a random amount of time between 50ms and 150ms)</i></li>
+            <li><b>Mouse Moves:</b> Use absolute coordinates <i>(e.g., <b>MouseAbs 1920 1080</b>)</i> or relative moves <i>(e.g., <b>MouseDelta 0 50</b> moves the mouse 50 pixels down)</i>.</li>
         </ul>
         
         <h3>Step-Through Macros:</h3>
-        <p>Checking <b>Step</b> instead of <b>Repeat</b> changes how the macro fires. Every time you press the paddle, it will execute <b>only the next action</b> in your comma-separated list, cycling back to the start when finished. Great for combo strings.</p>
-        
-        <h3>Examples:</h3>
-        <ul>
-            <li><b>Copy:</b> <code>Ctrl down, C, 50, Ctrl up</code></li>
-            <li><b>Save:</b> <code>Ctrl down, S, 50, Ctrl up</code></li>
-            <li><b>Fast Auto-Click:</b> <code>LClick</code> <i>(Enable Repeat!)</i></li>
-        </ul>
+        <p>Checking <b>Step</b> changes how the macro fires. Every time you press the paddle, it will execute <b>only the next action</b> in your list, cycling back to the start when finished.</p>
+        <br>
+        <p style='color: #D32F2F;'><b>⚠️  Pro-Tip for Step Macros:</b> Do not use the Live Recorder for Step macros! The recorder captures individual "down", "delay", and "up" events, meaning you will have to press the paddle 3-4 times just to type one letter. For Step macros, manually type clean, comma-separated lists like: <code>A, B, C</code>.</p>
         </body>
         </html>
     """.trimIndent()
@@ -1476,7 +1704,7 @@ fun showLayerInstructions(parent: JFrame) {
         
         <h3>Single Button vs. Combo Layer Toggles:</h3>
         <ul>
-            <li><b>Single Toggle (e.g., CMD):</b> If you assign only one button to switch Layers in Layer Settings, it becomes permanently reserved globally. You won't be able to assign standard inputs to it.</li>
+            <li><b>Single Toggle (e.g., Command):</b> If you assign only one button to switch Layers in Layer Settings, it becomes permanently reserved globally. You won't be able to assign standard inputs to it.</li>
             <li><b>Combo Toggle (e.g., M1 + M4):</b> If you assign a two-button combo for your Layer shift, you can still use those buttons individually! The system pauses your single actions only when you press them both together to shift layers.</li>
         </ul>
         </body>
@@ -1540,53 +1768,103 @@ fun processMacroToken(robot: Robot, token: String, pressedKeys: MutableSet<Int>,
     val t = token.trim()
     if (t.isEmpty()) return
 
+    // 1. Check for Randomized Delay (e.g., "50~150")
+    if (t.contains("~")) {
+        val parts = t.split("~")
+        if (parts.size == 2) {
+            val min = parts[0].trim().toLongOrNull()
+            val max = parts[1].trim().toLongOrNull()
+            if (min != null && max != null && min <= max) {
+                Thread.sleep(Random.nextLong(min, max + 1))
+                return
+            }
+        }
+    }
+
+    // 2. Check for Static Delay
     val d = t.toLongOrNull()
     if (d != null) {
         Thread.sleep(d)
         return
     }
 
-    val p = t.split(" ")
-    val key = p[0]
-    val act = if (p.size > 1) p[1].lowercase() else "tap"
+    val p = t.split(Regex("\\s+"))
 
+    // 3. Check for Mouse Movements
+    if (p[0].equals("MouseAbs", ignoreCase = true) && p.size >= 3) {
+        val x = p[1].toIntOrNull() ?: return
+        val y = p[2].toIntOrNull() ?: return
+        try { robot.mouseMove(x, y) } catch (e: Exception) {}
+        return
+    }
+
+    if (p[0].equals("MouseDelta", ignoreCase = true) && p.size >= 3) {
+        val dx = p[1].toIntOrNull() ?: return
+        val dy = p[2].toIntOrNull() ?: return
+        val currentPos = MouseInfo.getPointerInfo().location
+        try { robot.mouseMove(currentPos.x + dx, currentPos.y + dy) } catch (e: Exception) {}
+        return
+    }
+
+    // 4. Standard Keys and Mouse Clicks
+    val tLower = t.lowercase()
+    val act: String
+    val keyStr: String
+
+    // Smarter parsing to handle multi-word keys like "Page Up" or "NumPad 0" correctly
+    if (tLower.endsWith(" down")) {
+        act = "down"
+        keyStr = t.substring(0, t.length - 5).trim()
+    } else if (tLower.endsWith(" up")) {
+        act = "up"
+        keyStr = t.substring(0, t.length - 3).trim()
+    } else {
+        act = "tap"
+        keyStr = t
+    }
+
+    val key = keyStr
     val mouseMask = getMouseMask(key)
+
     if (mouseMask != 0) {
-        when (act) {
-            "down" -> { robot.mousePress(mouseMask); pressedMouse.add(mouseMask) }
-            "up" -> { robot.mouseRelease(mouseMask); pressedMouse.remove(mouseMask) }
-            else -> {
-                robot.mousePress(mouseMask); pressedMouse.add(mouseMask)
-                Thread.sleep(20)
-                robot.mouseRelease(mouseMask); pressedMouse.remove(mouseMask)
+        try {
+            when (act) {
+                "down" -> { robot.mousePress(mouseMask); pressedMouse.add(mouseMask) }
+                "up" -> { robot.mouseRelease(mouseMask); pressedMouse.remove(mouseMask) }
+                else -> {
+                    robot.mousePress(mouseMask); pressedMouse.add(mouseMask)
+                    Thread.sleep(20)
+                    robot.mouseRelease(mouseMask); pressedMouse.remove(mouseMask)
+                }
             }
-        }
+        } catch (e: Exception) {}
     } else {
         val k = getKeyCode(key) ?: return
-        when (act) {
-            "down" -> { robot.keyPress(k); pressedKeys.add(k) }
-            "up" -> { robot.keyRelease(k); pressedKeys.remove(k) }
-            else -> {
-                robot.keyPress(k); pressedKeys.add(k)
-                Thread.sleep(20)
-                robot.keyRelease(k); pressedKeys.remove(k)
+        try {
+            when (act) {
+                "down" -> { robot.keyPress(k); pressedKeys.add(k) }
+                "up" -> { robot.keyRelease(k); pressedKeys.remove(k) }
+                else -> {
+                    robot.keyPress(k); pressedKeys.add(k)
+                    Thread.sleep(20)
+                    robot.keyRelease(k); pressedKeys.remove(k)
+                }
             }
-        }
+        } catch (e: Exception) {}
     }
 }
 
-fun executeMacro(robot: Robot, b: PaddleBind): Thread {
+fun executeMacro(robot: Robot, b: PaddleBind, state: ButtonState): Thread {
     val t = Thread {
         val pressedKeys = mutableSetOf<Int>()
         val pressedMouse = mutableSetOf<Int>()
         try {
             do {
                 b.macroText.split(",").map { it.trim() }.forEach { token ->
-                    if (Thread.interrupted()) throw InterruptedException()
                     processMacroToken(robot, token, pressedKeys, pressedMouse)
                 }
-            } while (b.repeatMacro && !Thread.interrupted())
-        } catch (e: InterruptedException) {
+            } while (b.repeatMacro && state.activeBind === b) // <--- Fixed to ensure repeats only check actual logical bind
+        } catch (e: Exception) {
         } finally {
             pressedKeys.forEach { k -> try { robot.keyRelease(k) } catch (e: Exception) {} }
             pressedMouse.forEach { m -> try { robot.mouseRelease(m) } catch (e: Exception) {} }
@@ -1597,7 +1875,11 @@ fun executeMacro(robot: Robot, b: PaddleBind): Thread {
 }
 
 fun executeMacroStep(robot: Robot, b: PaddleBind, state: ButtonState) {
-    val tokens = b.macroText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    // Filter out delays (static numbers or random ranges)
+    val tokens = b.macroText.split(",").map { it.trim() }.filter {
+        it.isNotEmpty() && !it.contains("~") && it.toLongOrNull() == null
+    }
+
     if (tokens.isEmpty()) return
 
     Thread {
