@@ -27,7 +27,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.random.Random
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.25"
+const val APP_VERSION = "1.3"
 const val GITHUB_REPO = "retholtz/ShadowLink"
 
 var profiles = mutableListOf<Profile>()
