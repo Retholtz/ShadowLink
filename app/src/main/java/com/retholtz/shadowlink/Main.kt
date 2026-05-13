@@ -27,7 +27,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.random.Random
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.3"
+const val APP_VERSION = "1.31"
 const val GITHUB_REPO = "retholtz/ShadowLink"
 
 var profiles = mutableListOf<Profile>()
@@ -38,7 +38,6 @@ var loadOnStartup = false
 var isDarkMode = true
 var osdPosition = "Bottom Right"
 var controllerScanInterval = 5000 // Global Auto-Detect Rate in ms
-var comboBufferMs = 30 // Microlag buffer to wait for combo presses
 
 @Volatile var activeLayer = 1 // Tracks current layer (1 through 5)
 
@@ -90,6 +89,7 @@ data class Profile(
     var targetProcess: String = "",
     var toggleButton1: String = "None",
     var toggleButton2: String = "None",
+    var comboBufferMs: Int = 30, // Microlag buffer to wait for combo presses (Now per-profile)
     val layers: List<LayerConfig> = listOf(
         LayerConfig("Layer 1", true),
         LayerConfig("Layer 2", false, m1=PaddleBind(keyChar="1"), m2=PaddleBind(keyChar="2"), m3=PaddleBind(keyChar="3"), m4=PaddleBind(keyChar="4"), cmd=PaddleBind(keyChar="5"), lib=PaddleBind(keyChar="6")),
@@ -241,6 +241,7 @@ lateinit var processField: JTextField
 lateinit var tabbedPane: JTabbedPane
 lateinit var t1Combo: JComboBox<String>
 lateinit var t2Combo: JComboBox<String>
+lateinit var bufferSpinner: JSpinner
 
 class LayerUI(
     val nameField: JTextField, val enabledBox: JCheckBox,
@@ -534,7 +535,7 @@ fun createAndShowGUI() {
     layerSettingsPanel.layout = BoxLayout(layerSettingsPanel, BoxLayout.Y_AXIS)
     layerSettingsPanel.border = BorderFactory.createEmptyBorder(20, 20, 20, 20)
 
-    val toggleInfo = JLabel("<html><b>Global Layer Toggle Assignment</b><br>Select which buttons will cycle through your enabled layers. This setting applies across all profiles. Selecting a Single Button toggle will reserve it, but using a Dual Combo allows both buttons to remain active individually!</html>")
+    val toggleInfo = JLabel("<html><b>Profile Layer Toggle Assignment</b><br>Select which buttons will cycle through your enabled layers <b>for this profile</b>. Selecting a Single Button toggle will reserve it globally for this layout, but using a Dual Combo allows both buttons to remain active individually!</html>")
     toggleInfo.border = BorderFactory.createEmptyBorder(0, 0, 15, 0)
     layerSettingsPanel.add(toggleInfo)
 
@@ -557,7 +558,7 @@ fun createAndShowGUI() {
 
     // Advanced Global Settings Section
     layerSettingsPanel.add(Box.createRigidArea(Dimension(0, 20)))
-    val advancedInfo = JLabel("<html><b>Advanced Global Settings</b><br><b>Controller Auto-Detect Rate</b> determines how often the app searches for your controller. <i>(Requires app restart)</i><br><b>Combo Input Delay</b> adds a tiny buffer allowing you to trigger combos without misfiring single buttons!</html>")
+    val advancedInfo = JLabel("<html><b>Advanced Settings</b><br><b>Controller Auto-Detect Rate</b> <i>(Global App Setting)</i> determines how often the app searches for your controller. (Requires app restart)<br><b>Combo Input Delay</b> <i>(Profile Setting)</i> adds a tiny buffer allowing you to trigger combos without misfiring single buttons!</html>")
     advancedInfo.border = BorderFactory.createEmptyBorder(0, 0, 15, 0)
     layerSettingsPanel.add(advancedInfo)
 
@@ -577,10 +578,7 @@ fun createAndShowGUI() {
 
     val bufferPanel = JPanel(FlowLayout(FlowLayout.LEFT))
     bufferPanel.add(JLabel("Combo Input Delay (Microlag Buffer):"))
-    val bufferSpinner = JSpinner(SpinnerNumberModel(comboBufferMs, 0, 500, 5))
-    bufferSpinner.addChangeListener {
-        comboBufferMs = bufferSpinner.value as Int
-    }
+    bufferSpinner = JSpinner(SpinnerNumberModel(activeProfile.comboBufferMs, 0, 500, 5))
     bufferPanel.add(bufferSpinner)
     bufferPanel.add(JLabel("ms (0 = Instant/No Buffer, 30 = Recommended)"))
     advancedPanel.add(bufferPanel)
@@ -942,6 +940,7 @@ fun refreshUI() {
     profileCombo.selectedItem = activeProfile.name
     t1Combo.selectedItem = activeProfile.toggleButton1
     t2Combo.selectedItem = activeProfile.toggleButton2
+    bufferSpinner.value = activeProfile.comboBufferMs
 
     for (i in 0 until 5) {
         val config = activeProfile.layers[i]
@@ -971,6 +970,7 @@ fun updateActiveProfileFromUI() {
     activeProfile.targetProcess = processField.text.trim().lowercase()
     activeProfile.toggleButton1 = t1Combo.selectedItem as String
     activeProfile.toggleButton2 = t2Combo.selectedItem as String
+    activeProfile.comboBufferMs = bufferSpinner.value as Int
 
     for (i in 0 until 5) {
         val config = activeProfile.layers[i]
@@ -1239,7 +1239,7 @@ fun runControllerSniffer() {
                                             bs.comboConsumed = false
 
                                             if (bind.enabled) {
-                                                if (comboBufferMs > 0) {
+                                                if (p.comboBufferMs > 0) {
                                                     bs.pendingTask = object : java.util.TimerTask() {
                                                         override fun run() {
                                                             if (!bs.comboConsumed) {
@@ -1248,7 +1248,7 @@ fun runControllerSniffer() {
                                                             }
                                                         }
                                                     }
-                                                    actionTimer.schedule(bs.pendingTask, comboBufferMs.toLong())
+                                                    actionTimer.schedule(bs.pendingTask, p.comboBufferMs.toLong())
                                                 } else {
                                                     bs.singleActionFired = true
                                                     bs.fire(robot, bind)
@@ -1326,6 +1326,7 @@ fun loadAllProfiles() {
             p.targetProcess = props.getProperty("TARGET_PROCESS", "")
             p.toggleButton1 = props.getProperty("TOGGLE_BTN_1", "None")
             p.toggleButton2 = props.getProperty("TOGGLE_BTN_2", "None")
+            p.comboBufferMs = props.getProperty("COMBO_BUFFER_MS", "30").toIntOrNull() ?: 30
 
             // Legacy single toggle check
             if (p.toggleButton1 == "None") {
@@ -1383,7 +1384,6 @@ fun loadAllProfiles() {
             isDarkMode = global.getProperty("DARK_MODE", "true").toBoolean()
             osdPosition = global.getProperty("OSD_POSITION", "Bottom Right")
             controllerScanInterval = global.getProperty("SCAN_INTERVAL", "5000").toIntOrNull() ?: 5000
-            comboBufferMs = global.getProperty("COMBO_BUFFER_MS", "30").toIntOrNull() ?: 30
 
             activeProfile = profiles.find { it.name == lastActive } ?: profiles[0]
         } else {
@@ -1397,6 +1397,7 @@ fun saveProfile(p: Profile) {
     props.setProperty("TARGET_PROCESS", p.targetProcess)
     props.setProperty("TOGGLE_BTN_1", p.toggleButton1)
     props.setProperty("TOGGLE_BTN_2", p.toggleButton2)
+    props.setProperty("COMBO_BUFFER_MS", p.comboBufferMs.toString())
 
     fun saveB(prefix: String, b: PaddleBind) {
         props.setProperty("${prefix}_EN", b.enabled.toString())
@@ -1435,7 +1436,6 @@ fun saveGlobalConfig() {
     props.setProperty("DARK_MODE", isDarkMode.toString())
     props.setProperty("OSD_POSITION", osdPosition)
     props.setProperty("SCAN_INTERVAL", controllerScanInterval.toString())
-    props.setProperty("COMBO_BUFFER_MS", comboBufferMs.toString())
 
     FileOutputStream(globalConfigFile).use { props.store(it, null) }
 }
