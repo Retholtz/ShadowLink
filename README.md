@@ -18,11 +18,47 @@ ShadowLink allows you to bind any keyboard key (along with Shift, Ctrl, and Alt 
 
 *Update 1.1* : Update tab added to main screen to streamline updates
 
+*Update 1.1 -> 1.2 -> 1.3*:
+
+---Massive Update---
+
+Numerous features added:
+
+- Layers: Have multiple key binds to easily switch between using a configurable button or button combination. 5 layers in total
+
+- Layer Overlay: Popup in a screen corner of your choosing to show you which layer is active
+
+- Layer toggle settings: Use one button or a combination of buttons to switch between layers
+
+- Macro recorder
+
+- Improved Macro instructions
+
+- Added variable pause to macros for a more "human" response: Adjust your macro to fire at a random rate with the "~". A macro with 50~150 delay will randomly fire the next key in the macro between 50ms to 150ms
+
+- Added Mouse Clicks: Left, Right, Middle
+
+- Improved Macro instructions
+
+- Added Mouse movement to macro: Set the mouse to move to an absolute position (Mouseabs) or to move a certain distance (Mousedelta)
+
+- Improved Macro instructions
+
+- Added combination keys: M1+M2, M2+M3, etc.
+
+- Combination key delay: In settings adjust a "micro-lag" so that combo keys do not accidently fire a key bind you don't want (Default 30ms)
+
+- Clone Profile
+
+- Import/Export Profile
+
+- USB polling setting (Auto-Detect Rate): Default is 5000ms, this setting determines how often the program searches for your controller
+
+*Update 1.3.1* : Minor fix: Layout/Controller settings are assigned to each profile, not a global setting.
+
 📥 Download
 
-Because the bundled Java Runtime Environment (JRE) makes the release file too large for standard GitHub hosting, the official compiled release is hosted safely on Google Drive:
-
-👉 [**Download ShadowLink v1.1**](https://drive.google.com/file/d/1J-oyUeNtDGvYKElq7Y4FTUjn7zOJFZEI/view?usp=drive_link)
+If this is a first time install download the .zip file as it has the Java runtime needed. If you have installed previously you can download the most recent .exe file and replace. If coming from version 1.1 or above use the "Check for Update" button to download within the program.
 
 
 🚀 How to UseExtract the ZIP file:
