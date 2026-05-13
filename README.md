@@ -59,6 +59,7 @@ Numerous features added:
 📥 Download
 
 If this is a first time install download the .zip file as it has the Java runtime needed. If you have installed previously you can download the most recent .exe file and replace. If coming from version 1.1 or above use the "Check for Update" button to download within the program.
+Direct Link to version 1.31: https://github.com/Retholtz/ShadowLink/releases/download/v1.31/ShadowLink.1.3.1.zip
 
 
 🚀 How to UseExtract the ZIP file:
