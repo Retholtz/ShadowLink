@@ -13,7 +13,7 @@ import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.33"
+const val APP_VERSION = "1.34"
 const val GITHUB_REPO = "retholtz/ShadowLink"
 
 var profiles = mutableListOf<Profile>()
