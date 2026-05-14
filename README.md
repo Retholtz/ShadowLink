@@ -56,10 +56,21 @@ Numerous features added:
 
 *Update 1.3.1* : Minor fix: Layout/Controller settings are assigned to each profile, not a global setting.
 
+*Update 1.32* :
+
+-Added the ability to key bind all buttons and triggers. Note: In order to use this you must disable the native control either within the program you are using or with a program like Steam Big Picture Mode. If activate a button (For example Left Bumper) and apply a key bind such as the letter 'a' if you have not removed the bumper command you will get both the Xbox Left Bumper signal and the letter 'a' send to your program. Triggers, Face Buttons, and D-pad are not enable by default. This feature is mainly for users who want to play games built for keyboard and mouse on their Raikiri controller.
+
+-Check for update automatically on startup.
+
+-Profiles are now stored under %AppData% due to the major upgrade path. Profiles may be lost in this upgrade.
+
+*Update 1.33* :
+-Minor Fix: Right mouse button and middle mouse buttons were swapped
+
 📥 Download
 
 If this is a first time install download the .zip file as it has the Java runtime needed. If you have installed previously you can download the most recent .exe file and replace. If coming from version 1.1 or above use the "Check for Update" button to download within the program.
-Direct Link to version 1.31: https://github.com/Retholtz/ShadowLink/releases/download/v1.31/ShadowLink.1.3.1.zip
+Direct Link to version 1.33: https://github.com/Retholtz/ShadowLink/releases/download/v1.33/ShadowLink.1.33.zip
 
 
 🚀 How to UseExtract the ZIP file:
