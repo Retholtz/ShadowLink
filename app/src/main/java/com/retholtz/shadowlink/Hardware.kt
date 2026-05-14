@@ -167,6 +167,10 @@ fun runControllerSniffer() {
             if (isConnected) return
             if (raikiri.open()) {
                 isConnected = true
+
+                // FIX: Pause USB bus polling while connected to prevent crashing Razer/Corsair peripherals!
+                hidServices.stop()
+
                 readingThread = Thread {
                     val actionTimer = java.util.Timer("ShadowLink-ActionTimer", true)
 
@@ -329,6 +333,11 @@ fun runControllerSniffer() {
                         }
                     } finally {
                         actionTimer.cancel()
+
+                        // RESUME USB polling only if the controller actually disconnected
+                        if (!isConnected) {
+                            hidServices.start()
+                        }
                     }
                 }
                 readingThread?.start()
