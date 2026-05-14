@@ -56,8 +56,8 @@ fun getKeyCode(key: String): Int? {
 fun getMouseMask(key: String): Int {
     return when (key.lowercase()) {
         "lclick" -> InputEvent.BUTTON1_DOWN_MASK
-        "rclick" -> InputEvent.BUTTON2_DOWN_MASK
-        "mclick" -> InputEvent.BUTTON3_DOWN_MASK
+        "mclick" -> InputEvent.BUTTON2_DOWN_MASK
+        "rclick" -> InputEvent.BUTTON3_DOWN_MASK
         else -> 0
     }
 }
