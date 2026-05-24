@@ -67,6 +67,13 @@ Numerous features added:
 *Update 1.33* :
 -Minor Fix: Right mouse button and middle mouse buttons were swapped
 
+*Update 1.34* :
+-USB Scanner Fix
+
+*Update 1.35* :
+-Macro fixes
+-Added Command/Library combo
+
 📥 Download
 
 If this is a first time install download the .zip file as it has the Java runtime needed. If you have installed previously you can download the most recent .exe file and replace. If coming from version 1.1 or above use the "Check for Update" button to download within the program.
