@@ -16,7 +16,6 @@ import javax.swing.SwingUtilities
 import kotlin.random.Random
 
 // --- XINPUT JNA BINDINGS ---
-// Changed from Library to StdCallLibrary
 interface XInputLibrary : StdCallLibrary {
     companion object {
         val INSTANCE: XInputLibrary? = try {
@@ -60,14 +59,12 @@ fun runControllerSniffer() {
         while (true) {
             val xInput = XInputLibrary.INSTANCE
             if (xInput != null) {
-
                 var wButtons = 0
                 var ltVal = 0
                 var rtVal = 0
                 var anyConnected = false
 
                 // Scan all 4 Xbox Player slots and merge the inputs.
-                // This prevents the ViGEm ghost controller from stealing Player 1 and breaking the poller.
                 for (i in 0..3) {
                     val res = xInput.XInputGetState(i, xState)
                     if (res == 0) { // SUCCESS
@@ -168,7 +165,7 @@ fun runControllerSniffer() {
             if (raikiri.open()) {
                 isConnected = true
 
-                // FIX: Pause USB bus polling while connected to prevent crashing Razer/Corsair peripherals!
+                // Pause USB bus polling while connected to prevent crashing other peripherals
                 hidServices.stop()
 
                 readingThread = Thread {
@@ -183,6 +180,15 @@ fun runControllerSniffer() {
                     val m2m4State = ButtonState(); val m3m4State = ButtonState()
 
                     var wasToggleTriggered = false
+
+                    // Hardware Debounce State Variables
+                    var lastM1Time = 0L; var lastM2Time = 0L
+                    var lastM3Time = 0L; var lastM4Time = 0L
+                    var lastCmdTime = 0L; var lastLibTime = 0L
+
+                    var debouncedS1 = false; var debouncedS2 = false
+                    var debouncedS3 = false; var debouncedS4 = false
+                    var debouncedSCmd = false; var debouncedSLib = false
 
                     try {
                         while (isConnected) {
@@ -202,7 +208,42 @@ fun runControllerSniffer() {
                                     val sCmd = isAltMode && data[5].toInt() == 1
                                     val sLib = isAltMode && data[6].toInt() == 1
 
-                                    val states = mapOf("M1" to s1, "M2" to s2, "M3" to s3, "M4" to s4, "Command" to sCmd, "Library" to sLib)
+                                    // Apply Industrial Debounce Filter (25ms window)
+                                    val now = System.currentTimeMillis()
+                                    val debounceMs = 25L
+
+                                    if (s1 != debouncedS1) {
+                                        if (now - lastM1Time > debounceMs) { debouncedS1 = s1; lastM1Time = now }
+                                    } else { lastM1Time = now }
+
+                                    if (s2 != debouncedS2) {
+                                        if (now - lastM2Time > debounceMs) { debouncedS2 = s2; lastM2Time = now }
+                                    } else { lastM2Time = now }
+
+                                    if (s3 != debouncedS3) {
+                                        if (now - lastM3Time > debounceMs) { debouncedS3 = s3; lastM3Time = now }
+                                    } else { lastM3Time = now }
+
+                                    if (s4 != debouncedS4) {
+                                        if (now - lastM4Time > debounceMs) { debouncedS4 = s4; lastM4Time = now }
+                                    } else { lastM4Time = now }
+
+                                    if (sCmd != debouncedSCmd) {
+                                        if (now - lastCmdTime > debounceMs) { debouncedSCmd = sCmd; lastCmdTime = now }
+                                    } else { lastCmdTime = now }
+
+                                    if (sLib != debouncedSLib) {
+                                        if (now - lastLibTime > debounceMs) { debouncedSLib = sLib; lastLibTime = now }
+                                    } else { lastLibTime = now }
+
+                                    val states = mapOf(
+                                        "M1" to debouncedS1,
+                                        "M2" to debouncedS2,
+                                        "M3" to debouncedS3,
+                                        "M4" to debouncedS4,
+                                        "Command" to debouncedSCmd,
+                                        "Library" to debouncedSLib
+                                    )
 
                                     val t1 = p.toggleButton1
                                     val t2 = p.toggleButton2
@@ -274,12 +315,12 @@ fun runControllerSniffer() {
                                         }
                                     }
 
-                                    handleCombo("M1", s1, "M2", s2, m1m2State, currentLayerConfig.m1_m2, m1State, m2State)
-                                    handleCombo("M1", s1, "M3", s3, m1m3State, currentLayerConfig.m1_m3, m1State, m3State)
-                                    handleCombo("M1", s1, "M4", s4, m1m4State, currentLayerConfig.m1_m4, m1State, m4State)
-                                    handleCombo("M2", s2, "M3", s3, m2m3State, currentLayerConfig.m2_m3, m2State, m3State)
-                                    handleCombo("M2", s2, "M4", s4, m2m4State, currentLayerConfig.m2_m4, m2State, m4State)
-                                    handleCombo("M3", s3, "M4", s4, m3m4State, currentLayerConfig.m3_m4, m3State, m4State)
+                                    handleCombo("M1", debouncedS1, "M2", debouncedS2, m1m2State, currentLayerConfig.m1_m2, m1State, m2State)
+                                    handleCombo("M1", debouncedS1, "M3", debouncedS3, m1m3State, currentLayerConfig.m1_m3, m1State, m3State)
+                                    handleCombo("M1", debouncedS1, "M4", debouncedS4, m1m4State, currentLayerConfig.m1_m4, m1State, m4State)
+                                    handleCombo("M2", debouncedS2, "M3", debouncedS3, m2m3State, currentLayerConfig.m2_m3, m2State, m3State)
+                                    handleCombo("M2", debouncedS2, "M4", debouncedS4, m2m4State, currentLayerConfig.m2_m4, m2State, m4State)
+                                    handleCombo("M3", debouncedS3, "M4", debouncedS4, m3m4State, currentLayerConfig.m3_m4, m3State, m4State)
 
                                     fun handleSingle(name: String, state: Boolean, bs: ButtonState, bind: PaddleBind) {
                                         if (consumed.contains(name)) {
@@ -315,12 +356,12 @@ fun runControllerSniffer() {
                                         }
                                     }
 
-                                    handleSingle("M1", s1, m1State, currentLayerConfig.m1)
-                                    handleSingle("M2", s2, m2State, currentLayerConfig.m2)
-                                    handleSingle("M3", s3, m3State, currentLayerConfig.m3)
-                                    handleSingle("M4", s4, m4State, currentLayerConfig.m4)
-                                    handleSingle("Command", sCmd, cmdState, currentLayerConfig.cmd)
-                                    handleSingle("Library", sLib, libState, currentLayerConfig.lib)
+                                    handleSingle("M1", debouncedS1, m1State, currentLayerConfig.m1)
+                                    handleSingle("M2", debouncedS2, m2State, currentLayerConfig.m2)
+                                    handleSingle("M3", debouncedS3, m3State, currentLayerConfig.m3)
+                                    handleSingle("M4", debouncedS4, m4State, currentLayerConfig.m4)
+                                    handleSingle("Command", debouncedSCmd, cmdState, currentLayerConfig.cmd)
+                                    handleSingle("Library", debouncedSLib, libState, currentLayerConfig.lib)
 
                                 } else if (read < 0) {
                                     isConnected = false
@@ -334,7 +375,7 @@ fun runControllerSniffer() {
                     } finally {
                         actionTimer.cancel()
 
-                        // RESUME USB polling only if the controller actually disconnected
+                        // Resume USB polling only if the controller actually disconnected
                         if (!isConnected) {
                             hidServices.start()
                         }
@@ -363,69 +404,91 @@ fun runControllerSniffer() {
     }.start()
 }
 
-// --- INPUT INJECTION LOGIC ---
+// --- INPUT INJECTION LOGIC (THREAD-SAFE WRAPPERS) ---
 
 fun pressKeyBind(robot: Robot, b: PaddleBind) {
-    try {
-        if (b.keyChar.startsWith("Xbox_")) {
-            return
-        }
+    synchronized(robot) {
+        try {
+            if (b.keyChar.startsWith("Xbox_")) return
 
-        if (b.win) robot.keyPress(KeyEvent.VK_WINDOWS)
-        if (b.shift) robot.keyPress(KeyEvent.VK_SHIFT)
-        if (b.ctrl) robot.keyPress(KeyEvent.VK_CONTROL)
-        if (b.alt) robot.keyPress(KeyEvent.VK_ALT)
+            if (b.win) robot.keyPress(KeyEvent.VK_WINDOWS)
+            if (b.shift) robot.keyPress(KeyEvent.VK_SHIFT)
+            if (b.ctrl) robot.keyPress(KeyEvent.VK_CONTROL)
+            if (b.alt) robot.keyPress(KeyEvent.VK_ALT)
 
-        val mouseMask = getMouseMask(b.keyChar)
-        if (mouseMask != 0) {
-            robot.mousePress(mouseMask)
-        } else {
-            val k = getKeyCode(b.keyChar)
-            if (k != null) robot.keyPress(k)
-        }
-    } catch (e: Exception) {}
+            val mouseMask = getMouseMask(b.keyChar)
+            if (mouseMask != 0) {
+                robot.mousePress(mouseMask)
+            } else {
+                val k = getKeyCode(b.keyChar)
+                if (k != null) robot.keyPress(k)
+            }
+        } catch (e: Exception) {}
+    }
 }
 
 fun releaseKeyBind(robot: Robot, b: PaddleBind) {
-    try {
-        if (b.keyChar.startsWith("Xbox_")) {
-            return
-        }
+    synchronized(robot) {
+        try {
+            if (b.keyChar.startsWith("Xbox_")) return
 
-        val mouseMask = getMouseMask(b.keyChar)
-        if (mouseMask != 0) {
-            robot.mouseRelease(mouseMask)
+            val mouseMask = getMouseMask(b.keyChar)
+            if (mouseMask != 0) {
+                robot.mouseRelease(mouseMask)
+            } else {
+                val k = getKeyCode(b.keyChar)
+                if (k != null) robot.keyRelease(k)
+            }
+
+            if (b.alt) robot.keyRelease(KeyEvent.VK_ALT)
+            if (b.ctrl) robot.keyRelease(KeyEvent.VK_CONTROL)
+            if (b.shift) robot.keyRelease(KeyEvent.VK_SHIFT)
+            if (b.win) robot.keyRelease(KeyEvent.VK_WINDOWS)
+        } catch (e: Exception) {}
+    }
+}
+
+// --- MACRO PARSING UTILITY ---
+fun parseMacroText(macroText: String): List<String> {
+    val result = mutableListOf<String>()
+    // Split by common sequence delimiters: commas and semicolons
+    val rawTokens = macroText.split(Regex("[,;]")).map { it.trim() }
+    for (rawToken in rawTokens) {
+        if (rawToken.isEmpty()) continue
+        // Matches a delay number followed by an action separated by period(s) or space(s) e.g., "350. MClick" or "350 MClick"
+        val match = Regex("^(\\d+)(?:\\s*\\.\\s*|\\s+)([a-zA-Z_].*)$").matchEntire(rawToken)
+        if (match != null) {
+            result.add(match.groupValues[1]) // Delay (e.g. 350)
+            result.add(match.groupValues[2]) // Action (e.g. MClick)
         } else {
-            val k = getKeyCode(b.keyChar)
-            if (k != null) robot.keyRelease(k)
+            result.add(rawToken)
         }
-
-        if (b.alt) robot.keyRelease(KeyEvent.VK_ALT)
-        if (b.ctrl) robot.keyRelease(KeyEvent.VK_CONTROL)
-        if (b.shift) robot.keyRelease(KeyEvent.VK_SHIFT)
-        if (b.win) robot.keyRelease(KeyEvent.VK_WINDOWS)
-    } catch (e: Exception) {}
+    }
+    return result
 }
 
 fun processMacroToken(robot: Robot, token: String, pressedKeys: MutableSet<Int>, pressedMouse: MutableSet<Int>) {
     val t = token.trim()
-    if (t.isEmpty()) return
+    if (t.isEmpty() || Thread.currentThread().isInterrupted) return
 
+    // Dynamic delay
     if (t.contains("~")) {
         val parts = t.split("~")
         if (parts.size == 2) {
             val min = parts[0].trim().toLongOrNull()
             val max = parts[1].trim().toLongOrNull()
             if (min != null && max != null && min <= max) {
-                Thread.sleep(Random.nextLong(min, max + 1))
+                val delay = Random.nextLong(min, max + 1)
+                if (delay > 0) Thread.sleep(delay)
                 return
             }
         }
     }
 
+    // Static delay
     val d = t.toLongOrNull()
     if (d != null) {
-        Thread.sleep(d)
+        if (d > 0) Thread.sleep(d)
         return
     }
 
@@ -434,7 +497,9 @@ fun processMacroToken(robot: Robot, token: String, pressedKeys: MutableSet<Int>,
     if (p[0].equals("MouseAbs", ignoreCase = true) && p.size >= 3) {
         val x = p[1].toIntOrNull() ?: return
         val y = p[2].toIntOrNull() ?: return
-        try { robot.mouseMove(x, y) } catch (e: Exception) {}
+        try {
+            synchronized(robot) { robot.mouseMove(x, y) }
+        } catch (e: Exception) {}
         return
     }
 
@@ -442,7 +507,9 @@ fun processMacroToken(robot: Robot, token: String, pressedKeys: MutableSet<Int>,
         val dx = p[1].toIntOrNull() ?: return
         val dy = p[2].toIntOrNull() ?: return
         val currentPos = MouseInfo.getPointerInfo().location
-        try { robot.mouseMove(currentPos.x + dx, currentPos.y + dy) } catch (e: Exception) {}
+        try {
+            synchronized(robot) { robot.mouseMove(currentPos.x + dx, currentPos.y + dy) }
+        } catch (e: Exception) {}
         return
     }
 
@@ -462,22 +529,27 @@ fun processMacroToken(robot: Robot, token: String, pressedKeys: MutableSet<Int>,
     }
 
     val key = keyStr
-
-    if (key.startsWith("Xbox_", ignoreCase = true)) {
-        return
-    }
+    if (key.startsWith("Xbox_", ignoreCase = true)) return
 
     val mouseMask = getMouseMask(key)
 
     if (mouseMask != 0) {
         try {
             when (act) {
-                "down" -> { robot.mousePress(mouseMask); pressedMouse.add(mouseMask) }
-                "up" -> { robot.mouseRelease(mouseMask); pressedMouse.remove(mouseMask) }
-                else -> {
-                    robot.mousePress(mouseMask); pressedMouse.add(mouseMask)
-                    Thread.sleep(20)
-                    robot.mouseRelease(mouseMask); pressedMouse.remove(mouseMask)
+                "down" -> {
+                    synchronized(robot) { robot.mousePress(mouseMask) }
+                    pressedMouse.add(mouseMask)
+                }
+                "up" -> {
+                    synchronized(robot) { robot.mouseRelease(mouseMask) }
+                    pressedMouse.remove(mouseMask)
+                }
+                else -> { // TAP
+                    synchronized(robot) { robot.mousePress(mouseMask) }
+                    pressedMouse.add(mouseMask)
+                    Thread.sleep(50)
+                    synchronized(robot) { robot.mouseRelease(mouseMask) }
+                    pressedMouse.remove(mouseMask)
                 }
             }
         } catch (e: Exception) {}
@@ -485,12 +557,20 @@ fun processMacroToken(robot: Robot, token: String, pressedKeys: MutableSet<Int>,
         val k = getKeyCode(key) ?: return
         try {
             when (act) {
-                "down" -> { robot.keyPress(k); pressedKeys.add(k) }
-                "up" -> { robot.keyRelease(k); pressedKeys.remove(k) }
-                else -> {
-                    robot.keyPress(k); pressedKeys.add(k)
-                    Thread.sleep(20)
-                    robot.keyRelease(k); pressedKeys.remove(k)
+                "down" -> {
+                    synchronized(robot) { robot.keyPress(k) }
+                    pressedKeys.add(k)
+                }
+                "up" -> {
+                    synchronized(robot) { robot.keyRelease(k) }
+                    pressedKeys.remove(k)
+                }
+                else -> { // TAP
+                    synchronized(robot) { robot.keyPress(k) }
+                    pressedKeys.add(k)
+                    Thread.sleep(50)
+                    synchronized(robot) { robot.keyRelease(k) }
+                    pressedKeys.remove(k)
                 }
             }
         } catch (e: Exception) {}
@@ -503,14 +583,28 @@ fun executeMacro(robot: Robot, b: PaddleBind, state: ButtonState): Thread {
         val pressedMouse = mutableSetOf<Int>()
         try {
             do {
-                b.macroText.split(",").map { s: String -> s.trim() }.forEach { token: String ->
+                val tokens = parseMacroText(b.macroText)
+                for (token in tokens) {
+                    if (Thread.currentThread().isInterrupted) break
                     processMacroToken(robot, token, pressedKeys, pressedMouse)
                 }
-            } while (b.repeatMacro && state.activeBind === b)
+            } while (b.repeatMacro && state.activeBind === b && !Thread.currentThread().isInterrupted)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
         } catch (e: Exception) {
+            // Keep executing or log silently
         } finally {
-            pressedKeys.forEach { k -> try { robot.keyRelease(k) } catch (e: Exception) {} }
-            pressedMouse.forEach { m -> try { robot.mouseRelease(m) } catch (e: Exception) {} }
+            // Clean up left-over pressed physical keys safely on release/interruption
+            pressedKeys.forEach { k ->
+                synchronized(robot) {
+                    try { robot.keyRelease(k) } catch (e: Exception) {}
+                }
+            }
+            pressedMouse.forEach { m ->
+                synchronized(robot) {
+                    try { robot.mouseRelease(m) } catch (e: Exception) {}
+                }
+            }
         }
     }
     t.start()
@@ -518,23 +612,24 @@ fun executeMacro(robot: Robot, b: PaddleBind, state: ButtonState): Thread {
 }
 
 fun executeMacroStep(robot: Robot, b: PaddleBind, state: ButtonState) {
-    val tokens = b.macroText.split(",").map { s: String -> s.trim() }.filter { s: String ->
+    val tokens = parseMacroText(b.macroText).filter { s: String ->
         s.isNotEmpty() && !s.contains("~") && s.toLongOrNull() == null
     }
 
     if (tokens.isEmpty()) return
 
     Thread {
-        try {
-            val token = tokens[state.stepIndex % tokens.size]
-            val pressedKeys = mutableSetOf<Int>()
-            val pressedMouse = mutableSetOf<Int>()
+        // Synchronize on the state itself to avoid concurrent indexing anomalies
+        synchronized(state) {
+            try {
+                val token = tokens[state.stepIndex % tokens.size]
+                val pressedKeys = mutableSetOf<Int>()
+                val pressedMouse = mutableSetOf<Int>()
 
-            processMacroToken(robot, token, pressedKeys, pressedMouse)
+                processMacroToken(robot, token, pressedKeys, pressedMouse)
 
-            state.stepIndex++
-            if (state.stepIndex >= tokens.size) state.stepIndex = 0
-
-        } catch (e: Exception) {}
+                state.stepIndex = (state.stepIndex + 1) % tokens.size
+            } catch (e: Exception) {}
+        }
     }.start()
 }

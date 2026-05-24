@@ -13,7 +13,7 @@ import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.34"
+const val APP_VERSION = "1.35"
 const val GITHUB_REPO = "retholtz/ShadowLink"
 
 var profiles = mutableListOf<Profile>()
@@ -55,7 +55,8 @@ class LayerUI(
     val dLeft: PaddleUIControls, val dRight: PaddleUIControls,
     val m1_m2: PaddleUIControls, val m1_m3: PaddleUIControls,
     val m1_m4: PaddleUIControls, val m2_m3: PaddleUIControls,
-    val m2_m4: PaddleUIControls, val m3_m4: PaddleUIControls
+    val m2_m4: PaddleUIControls, val m3_m4: PaddleUIControls,
+    val cmd_lib: PaddleUIControls
 )
 val layerUIs = mutableListOf<LayerUI>()
 
@@ -146,7 +147,8 @@ fun createMainUI() {
                     l3 = layer.l3.copy(), r3 = layer.r3.copy(),
                     dUp = layer.dUp.copy(), dDown = layer.dDown.copy(), dLeft = layer.dLeft.copy(), dRight = layer.dRight.copy(),
                     m1_m2 = layer.m1_m2.copy(), m1_m3 = layer.m1_m3.copy(), m1_m4 = layer.m1_m4.copy(),
-                    m2_m3 = layer.m2_m3.copy(), m2_m4 = layer.m2_m4.copy(), m3_m4 = layer.m3_m4.copy()
+                    m2_m3 = layer.m2_m3.copy(), m2_m4 = layer.m2_m4.copy(), m3_m4 = layer.m3_m4.copy(),
+                    cmd_lib = layer.cmd_lib.copy()
                 )
             }
             val p = activeProfile.copy(name = name, layers = clonedLayers)
@@ -307,19 +309,21 @@ fun createMainUI() {
 
         sectionTabs.addTab(" Back Paddles ", wrapInScroll(paddlesPanel))
 
-        // --- SECTION 2: Paddle Combos ---
-        val combosPanel = JPanel(GridLayout(6, 1, 5, 5))
+        // --- SECTION 2: Button Combos ---
+        val combosPanel = JPanel(GridLayout(7, 1, 5, 5))
         val m1_m2C = createPaddleRow("M1 + M2", activeProfile.layers[i].m1_m2)
         val m1_m3C = createPaddleRow("M1 + M3", activeProfile.layers[i].m1_m3)
         val m1_m4C = createPaddleRow("M1 + M4", activeProfile.layers[i].m1_m4)
         val m2_m3C = createPaddleRow("M2 + M3", activeProfile.layers[i].m2_m3)
         val m2_m4C = createPaddleRow("M2 + M4", activeProfile.layers[i].m2_m4)
         val m3_m4C = createPaddleRow("M3 + M4", activeProfile.layers[i].m3_m4)
+        val cmd_libC = createPaddleRow("Command + Library", activeProfile.layers[i].cmd_lib)
 
         combosPanel.add(m1_m2C.panel); combosPanel.add(m1_m3C.panel); combosPanel.add(m1_m4C.panel)
         combosPanel.add(m2_m3C.panel); combosPanel.add(m2_m4C.panel); combosPanel.add(m3_m4C.panel)
+        combosPanel.add(cmd_libC.panel)
 
-        sectionTabs.addTab(" Paddle Combos ", wrapInScroll(combosPanel))
+        sectionTabs.addTab(" Button Combos ", wrapInScroll(combosPanel))
 
         // --- SECTION 3: Triggers, Face & D-Pad ---
         val standardPanel = JPanel(GridLayout(14, 1, 5, 5))
@@ -361,7 +365,7 @@ fun createMainUI() {
             nameField, enabledBox,
             m1C, m2C, m3C, m4C, cmdC, libC,
             lbC, rbC, ltC, rtC, aC, bC, xC, yC, l3C, r3C, dUpC, dDownC, dLeftC, dRightC,
-            m1_m2C, m1_m3C, m1_m4C, m2_m3C, m2_m4C, m3_m4C
+            m1_m2C, m1_m3C, m1_m4C, m2_m3C, m2_m4C, m3_m4C, cmd_libC
         ))
     }
 
@@ -617,6 +621,7 @@ fun refreshLayerLocks() {
         ui.m2_m3.isReserved = (reservedCombo == "M2+M3"); ui.m2_m3.refreshVis()
         ui.m2_m4.isReserved = (reservedCombo == "M2+M4"); ui.m2_m4.refreshVis()
         ui.m3_m4.isReserved = (reservedCombo == "M3+M4"); ui.m3_m4.refreshVis()
+        ui.cmd_lib.isReserved = (reservedCombo == "Command+Library"); ui.cmd_lib.refreshVis()
     }
 }
 
@@ -661,6 +666,7 @@ fun refreshUI() {
         refreshPaddleRow(ui.m2_m3, config.m2_m3)
         refreshPaddleRow(ui.m2_m4, config.m2_m4)
         refreshPaddleRow(ui.m3_m4, config.m3_m4)
+        refreshPaddleRow(ui.cmd_lib, config.cmd_lib)
     }
     refreshLayerLocks()
 }
@@ -699,6 +705,7 @@ fun updateActiveProfileFromUI() {
         updateBindFromUI(config.m2_m3, ui.m2_m3)
         updateBindFromUI(config.m2_m4, ui.m2_m4)
         updateBindFromUI(config.m3_m4, ui.m3_m4)
+        updateBindFromUI(config.cmd_lib, ui.cmd_lib)
     }
 }
 

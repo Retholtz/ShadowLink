@@ -51,7 +51,8 @@ data class LayerConfig(
     val m1_m4: PaddleBind = PaddleBind(enabled = false),
     val m2_m3: PaddleBind = PaddleBind(enabled = false),
     val m2_m4: PaddleBind = PaddleBind(enabled = false),
-    val m3_m4: PaddleBind = PaddleBind(enabled = false)
+    val m3_m4: PaddleBind = PaddleBind(enabled = false),
+    val cmd_lib: PaddleBind = PaddleBind(enabled = false)
 )
 
 data class Profile(

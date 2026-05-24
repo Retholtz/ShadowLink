@@ -68,6 +68,7 @@ fun loadAllProfiles() {
                 loadB("M1M2$suffix", p.layers[i].m1_m2); loadB("M1M3$suffix", p.layers[i].m1_m3)
                 loadB("M1M4$suffix", p.layers[i].m1_m4); loadB("M2M3$suffix", p.layers[i].m2_m3)
                 loadB("M2M4$suffix", p.layers[i].m2_m4); loadB("M3M4$suffix", p.layers[i].m3_m4)
+                loadB("CMDLIB$suffix", p.layers[i].cmd_lib)
             }
 
             profiles.add(p)
@@ -131,6 +132,7 @@ fun saveProfile(p: Profile) {
         saveB("M1M2$suffix", p.layers[i].m1_m2); saveB("M1M3$suffix", p.layers[i].m1_m3)
         saveB("M1M4$suffix", p.layers[i].m1_m4); saveB("M2M3$suffix", p.layers[i].m2_m3)
         saveB("M2M4$suffix", p.layers[i].m2_m4); saveB("M3M4$suffix", p.layers[i].m3_m4)
+        saveB("CMDLIB$suffix", p.layers[i].cmd_lib)
     }
 
     FileOutputStream(File(rootDir, "${p.name}.properties")).use { props.store(it, null) }
