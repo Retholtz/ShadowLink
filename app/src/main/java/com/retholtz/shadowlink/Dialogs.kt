@@ -159,6 +159,56 @@ fun showActiveProcessDialog(parent: JFrame) {
     dialog.isVisible = true
 }
 
+// --- LARGE TEXT MACRO EDITOR DIALOG ---
+fun openMacroEditor(parent: JFrame, targetField: JTextField, title: String) {
+    val d = JDialog(parent, "Macro Text Editor - $title", true)
+    d.setSize(550, 380) // Height increased slightly to prevent text compression
+    d.setLocationRelativeTo(parent)
+    d.layout = BorderLayout(10, 10)
+
+    val textArea = JTextArea(targetField.text).apply {
+        lineWrap = true
+        wrapStyleWord = true
+        font = Font("Monospaced", Font.PLAIN, 14)
+    }
+
+    val textScroll = JScrollPane(textArea).apply {
+        border = BorderFactory.createTitledBorder("Edit Macro String:")
+    }
+
+    val infoLabel = JLabel("<html><body style='color:gray;'>Actions separated by commas. (e.g. <code>LClick, 100ms, 3</code>)</body></html>")
+
+    val btnPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0))
+    val cancelBtn = JButton("Cancel")
+    cancelBtn.addActionListener { d.dispose() }
+    val saveBtn = JButton("Save")
+    saveBtn.addActionListener {
+        targetField.text = textArea.text.trim()
+        d.dispose()
+    }
+    btnPanel.add(cancelBtn)
+    btnPanel.add(Box.createHorizontalStrut(10))
+    btnPanel.add(saveBtn)
+
+    // Using vertical BoxLayout for the footer to cleanly stack text over the buttons
+    val bottomContainer = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = BorderFactory.createEmptyBorder(5, 15, 10, 15)
+    }
+
+    val infoPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+    infoPanel.add(infoLabel)
+
+    bottomContainer.add(infoPanel)
+    bottomContainer.add(Box.createVerticalStrut(10)) // Visual separator
+    bottomContainer.add(btnPanel)
+
+    d.add(textScroll, BorderLayout.CENTER)
+    d.add(bottomContainer, BorderLayout.SOUTH)
+
+    d.isVisible = true
+}
+
 // --- MACRO RECORDER DIALOG ---
 fun openMacroRecorder(parent: JFrame, targetField: JTextField) {
     val d = JDialog(parent, "Live Macro Recorder", true)
@@ -190,7 +240,7 @@ fun openMacroRecorder(parent: JFrame, targetField: JTextField) {
         val now = System.currentTimeMillis()
         if (lastTime > 0L) {
             val delay = now - lastTime
-            if (delay > 10) tokens.add("${delay}ms") // Appends "ms" strictly to standard delays
+            if (delay > 10) tokens.add("${delay}ms")
         }
         tokens.add(t)
         lastTime = now
@@ -283,12 +333,12 @@ fun showMacroInstructions(parent: JFrame) {
         
         <h3>Action Types:</h3>
         <ul>
-            <li><b>Tap a Key:</b> Type the key name. <i>(e.g., <b>A</b>, <b>1</b>, or <b>Enter</b>)</i></li>
+            <li><b>Tap a Key:</b> Type the key name. <i>(e.g., <b>A</b> or <b>Enter</b>)</i></li>
             <li><b>Mouse Clicks:</b> Use <b>LClick</b>, <b>RClick</b>, or <b>MClick</b>.</li>
             <li><b>Hold a Key:</b> Type the key name followed by "down". <i>(e.g., <b>Ctrl down</b>)</i></li>
             <li><b>Release a Key:</b> Type the key name followed by "up". <i>(e.g., <b>Ctrl up</b>)</i></li>
-            <li><b>Static Delay:</b> Type a number followed explicitly by <b>ms</b> (milliseconds) or <b>s</b> (seconds). <i>(e.g., <b>350ms</b> or <b>1.5s</b>)</i></li>
-            <li><b>Random Delay:</b> Type a range of values with units separated by a tilde. <i>(e.g., <b>50ms~150ms</b>)</i></li>
+            <li><b>Static Delay:</b> Type a number to wait in milliseconds. <i>(e.g., <b>500</b>)</i></li>
+            <li><b>Random Delay:</b> Type a range separated by a tilde to humanize inputs! <i>(e.g., <b>50~150</b> waits a random amount of time between 50ms and 150ms)</i></li>
             <li><b>Mouse Moves:</b> Use absolute coordinates <i>(e.g., <b>MouseAbs 1920 1080</b>)</i> or relative moves <i>(e.g., <b>MouseDelta 0 50</b> moves the mouse 50 pixels down)</i>.</li>
         </ul>
         
