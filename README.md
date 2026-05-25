@@ -74,6 +74,10 @@ Numerous features added:
 -Macro fixes
 -Added Command/Library combo
 
+*Update 1.36*:
+-Macro number fix
+-Macros adjusted, for a pause user must add a delay suffix (ms or s). For example: 200ms or 1.5s
+
 📥 Download
 
 If this is a first time install download the .zip file as it has the Java runtime needed. If you have installed previously you can download the most recent .exe file and replace. If coming from version 1.1 or above use the "Check for Update" button to download within the program.
