@@ -81,6 +81,9 @@ Numerous features added:
 *Update 1.37*:
 -Added Macro Editing Box
 
+*Update 1.38*:
+-Added indicator lights and error logging
+
 📥 Download
 
 If this is a first time install download the .zip file as it has the Java runtime needed. If you have installed previously you can download the most recent .exe file and replace. If coming from version 1.1 or above use the "Check for Update" button to download within the program.
