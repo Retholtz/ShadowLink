@@ -8,7 +8,10 @@ import org.hid4java.HidDevice
 import org.hid4java.HidManager
 import org.hid4java.HidServicesListener
 import org.hid4java.HidServicesSpecification
+import org.hid4java.ScanMode
 import org.hid4java.event.HidServicesEvent
+import org.hid4java.jna.HidApi
+import org.hid4java.jna.HidDeviceInfoStructure
 import java.awt.MouseInfo
 import java.awt.Robot
 import java.awt.event.KeyEvent
@@ -45,9 +48,69 @@ interface XInputLibrary : StdCallLibrary {
     fun XInputGetState(dwUserIndex: Int, pState: XINPUT_STATE): Int
 }
 
+// --- STATUS MONITORING (USB DONGLE & CONTROLLER LINK) ---
+enum class DeviceStatus(val label: String, val color: java.awt.Color) {
+    DISCONNECTED("Disconnected", java.awt.Color(220, 53, 69)),  // Red
+    ERROR("Error", java.awt.Color(255, 193, 7)),               // Yellow
+    CONNECTED("Connected", java.awt.Color(40, 167, 69))         // Green
+}
+
+@Volatile var usbDongleStatus: DeviceStatus = DeviceStatus.DISCONNECTED
+@Volatile var usbDongleDetails: String = "USB Dongle unplugged"
+
+@Volatile var controllerLinkStatus: DeviceStatus = DeviceStatus.DISCONNECTED
+@Volatile var controllerLinkDetails: String = "Controller turned off or sleeping"
+
+var onStatusUpdated: (() -> Unit)? = null
+
+@Volatile var lastHidDataTime = 0L
+@Volatile var lastXInputDataTime = 0L
+@Volatile var lastDongleSeenTime = 0L
+@Volatile var lastConnectionError: String? = null
+
+fun updateUsbDongleStatus(status: DeviceStatus, details: String) {
+    if (usbDongleStatus != status || usbDongleDetails != details) {
+        usbDongleStatus = status
+        usbDongleDetails = details
+        Logger.info("USB Dongle Status: $status ($details)")
+        SwingUtilities.invokeLater { onStatusUpdated?.invoke() }
+    }
+}
+
+fun updateControllerLinkStatus(status: DeviceStatus, details: String) {
+    if (controllerLinkStatus != status || controllerLinkDetails != details) {
+        controllerLinkStatus = status
+        controllerLinkDetails = details
+        Logger.info("Controller Link Status: $status ($details)")
+        SwingUtilities.invokeLater { onStatusUpdated?.invoke() }
+    }
+}
+
 // --- CONTROLLER POLLING ---
+fun findRaikiriHidDevices(): List<HidDevice> {
+    val devices = mutableListOf<HidDevice>()
+    val root = try {
+        HidApi.enumerateDevices(0x0B05, 0)
+    } catch (e: Exception) {
+        null
+    }
+    if (root != null) {
+        var curr: HidDeviceInfoStructure? = root
+        while (curr != null) {
+            devices.add(HidDevice(curr, null))
+            curr = curr.next()
+        }
+        HidApi.freeEnumeration(root)
+    }
+    return devices
+}
+
 fun runControllerSniffer() {
-    val spec = HidServicesSpecification().apply { scanInterval = controllerScanInterval }
+    val spec = HidServicesSpecification().apply {
+        scanMode = ScanMode.NO_SCAN
+        scanInterval = 0
+        isAutoStart = false
+    }
     val hidServices = HidManager.getHidServices(spec)
     val robot = Robot().apply { isAutoWaitForIdle = false }
 
@@ -78,6 +141,8 @@ fun runControllerSniffer() {
                 }
 
                 if (anyConnected) {
+                    lastXInputDataTime = System.currentTimeMillis()
+
                     val sLb = (wButtons and 0x0100) != 0
                     val sRb = (wButtons and 0x0200) != 0
                     val sLt = ltVal > 128
@@ -140,30 +205,54 @@ fun runControllerSniffer() {
 
     val controllerListener = object : HidServicesListener {
         @Volatile var isConnected = false
+        @Volatile var attachedRaikiri: HidDevice? = null
         var readingThread: Thread? = null
 
         override fun hidDeviceAttached(event: HidServicesEvent) {
             val device = event.hidDevice
-            if (device.vendorId == 0x0B05 && Integer.toHexString(device.usagePage).endsWith("c3")) {
-                startReading(device)
+            if (device.vendorId == 0x0B05) {
+                attachedRaikiri = device
+                Logger.info("HID Device attached: ${device.product} (VID: 0x${Integer.toHexString(device.vendorId)})")
+                updateUsbDongleStatus(DeviceStatus.CONNECTED, "ROG Raikiri II USB Dongle plugged in")
+                if (Integer.toHexString(device.usagePage).endsWith("c3")) {
+                    startReading(device)
+                }
             }
         }
 
         override fun hidDeviceDetached(event: HidServicesEvent) {
             val device = event.hidDevice
-            if (device.vendorId == 0x0B05 && Integer.toHexString(device.usagePage).endsWith("c3")) {
-                isConnected = false
-                readingThread?.interrupt()
+            if (device.vendorId == 0x0B05) {
+                Logger.info("HID Device detached: ${device.product}")
+                if (device == attachedRaikiri) {
+                    attachedRaikiri = null
+                }
+                if (Integer.toHexString(device.usagePage).endsWith("c3")) {
+                    isConnected = false
+                    readingThread?.interrupt()
+                }
             }
         }
 
-        override fun hidFailure(event: HidServicesEvent) {}
+        override fun hidFailure(event: HidServicesEvent) {
+            val device = event.hidDevice
+            if (device?.vendorId == 0x0B05) {
+                val deviceName = device.product ?: "Unknown Device"
+                val msg = "HID Failure detected on device: $deviceName"
+                Logger.error(msg)
+                lastConnectionError = msg
+                updateUsbDongleStatus(DeviceStatus.ERROR, msg)
+            }
+        }
 
         @Synchronized
         fun startReading(raikiri: HidDevice) {
             if (isConnected) return
+            Logger.info("Attempting to open ROG Raikiri II HID device...")
             if (raikiri.open()) {
                 isConnected = true
+                lastConnectionError = null
+                Logger.info("ROG Raikiri II HID device successfully opened")
 
                 // Pause USB bus polling while connected to prevent crashing other peripherals
                 hidServices.stop()
@@ -199,6 +288,7 @@ fun runControllerSniffer() {
                                 val read = raikiri.read(data, 10)
 
                                 if (read > 0 && (data[0].toInt() and 0xFF) == 0xB3) {
+                                    lastHidDataTime = System.currentTimeMillis()
                                     val isAltMode = data[3].toInt() == 2
 
                                     s1 = !isAltMode && data[8].toInt() == 1
@@ -364,37 +454,82 @@ fun runControllerSniffer() {
 
                             } catch (e: Exception) {
                                 isConnected = false
+                                lastConnectionError = "HID read error: ${e.message}"
+                                Logger.error("Error during Raikiri II reading loop", e)
                                 raikiri.close()
                             }
                         }
                     } finally {
                         actionTimer.cancel()
-
-                        // Resume USB polling only if the controller actually disconnected
-                        if (!isConnected) {
-                            hidServices.start()
-                        }
+                        isConnected = false
+                        try { raikiri.close() } catch (e: Exception) {}
                     }
                 }
                 readingThread?.start()
+            } else {
+                lastConnectionError = "Failed to open Raikiri II HID device"
+                Logger.warn("Failed to open Raikiri II HID device")
             }
         }
     }
 
     hidServices.addHidServicesListener(controllerListener)
-    hidServices.start()
 
+    // Dedicated Watchdog Thread to continually ping & monitor USB Dongle and Controller Link
     Thread {
         while (true) {
-            if (!controllerListener.isConnected) {
-                try {
-                    hidServices.attachedHidDevices
-                        .filter { it.vendorId == 0x0B05 }
-                        .find { Integer.toHexString(it.usagePage).endsWith("c3") }
-                        ?.let { controllerListener.startReading(it) }
-                } catch (e: Exception) {}
+            try {
+                val now = System.currentTimeMillis()
+                val recentHid = (now - lastHidDataTime) < 2500L
+                val recentXInput = (now - lastXInputDataTime) < 2500L
+
+                // 1. Target-scan ONLY for ASUS Raikiri II HID devices (VID 0x0B05)
+                if (!controllerListener.isConnected) {
+                    val raikiriDevices = findRaikiriHidDevices()
+                    val raikiriDongle = raikiriDevices.firstOrNull()
+                    val raikiriPaddleDevice = raikiriDevices.find { Integer.toHexString(it.usagePage).endsWith("c3") }
+
+                    if (raikiriDongle != null) {
+                        lastDongleSeenTime = now
+                        updateUsbDongleStatus(DeviceStatus.CONNECTED, "ROG Raikiri II USB Dongle plugged in")
+                    }
+
+                    if (raikiriPaddleDevice != null) {
+                        controllerListener.startReading(raikiriPaddleDevice)
+                    }
+                } else {
+                    lastDongleSeenTime = now
+                    updateUsbDongleStatus(DeviceStatus.CONNECTED, "ROG Raikiri II USB Dongle plugged in")
+                }
+
+                val isDonglePresent = (now - lastDongleSeenTime) < 2500L
+                if (!isDonglePresent) {
+                    updateUsbDongleStatus(DeviceStatus.DISCONNECTED, "USB Dongle unplugged / not detected")
+                }
+
+                // 2. Controller Link heartbeat (ping timeout)
+                val err = lastConnectionError
+                if (err != null && usbDongleStatus == DeviceStatus.CONNECTED) {
+                    updateControllerLinkStatus(DeviceStatus.ERROR, err)
+                } else if (recentHid || recentXInput) {
+                    val desc = when {
+                        recentHid && recentXInput -> "Connected (Raikiri II HID & XInput active)"
+                        recentHid -> "Connected (Raikiri II HID active)"
+                        else -> "Connected (XInput active)"
+                    }
+                    updateControllerLinkStatus(DeviceStatus.CONNECTED, desc)
+                } else {
+                    if (usbDongleStatus == DeviceStatus.CONNECTED) {
+                        updateControllerLinkStatus(DeviceStatus.DISCONNECTED, "Controller turned off or sleeping")
+                    } else {
+                        updateControllerLinkStatus(DeviceStatus.DISCONNECTED, "USB Dongle unplugged")
+                    }
+                }
+
+            } catch (e: Exception) {
+                Logger.error("Error in status watchdog thread", e)
             }
-            Thread.sleep(2000)
+            Thread.sleep(1000)
         }
     }.start()
 }

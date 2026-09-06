@@ -12,12 +12,14 @@ import javax.swing.SwingUtilities
 // --- PERSISTENCE & SYSTEM ---
 
 fun loadAllProfiles() {
+    Logger.info("Loading profiles from ${rootDir.absolutePath}")
     val files = rootDir.listFiles { _, name -> name.endsWith(".properties") }
     if (files.isNullOrEmpty()) {
         val default = Profile(name = "Default")
         profiles.add(default)
         activeProfile = default
         saveProfile(default)
+        Logger.info("No profiles found. Created default profile.")
     } else {
         files.forEach { file ->
             val props = Properties()
@@ -136,6 +138,7 @@ fun saveProfile(p: Profile) {
     }
 
     FileOutputStream(File(rootDir, "${p.name}.properties")).use { props.store(it, null) }
+    Logger.info("Saved profile '${p.name}'")
 }
 
 fun saveGlobalConfig() {
@@ -149,6 +152,7 @@ fun saveGlobalConfig() {
     props.setProperty("SCAN_INTERVAL", controllerScanInterval.toString())
 
     FileOutputStream(globalConfigFile).use { props.store(it, null) }
+    Logger.info("Saved global configuration")
 }
 
 fun updateStartupRegistry(enable: Boolean) {
@@ -196,7 +200,7 @@ fun updateStartupRegistry(enable: Boolean) {
         tempScript.delete()
 
     } catch (e: Exception) {
-        e.printStackTrace()
+        Logger.error("Failed to update startup registry task", e)
     }
 }
 
@@ -204,11 +208,13 @@ fun updateStartupRegistry(enable: Boolean) {
 fun checkForUpdates(parent: JFrame, silent: Boolean = false) {
     Thread {
         try {
+            Logger.info("Checking for application updates from GitHub...")
             val apiUrl = "https://api.github.com/repos/$GITHUB_REPO/releases/latest"
             val connection = URI(apiUrl).toURL().openConnection() as java.net.HttpURLConnection
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
 
             if (connection.responseCode != 200) {
+                Logger.warn("GitHub API check returned status ${connection.responseCode}")
                 if (!silent) SwingUtilities.invokeLater { JOptionPane.showMessageDialog(parent, "Could not check for updates. GitHub API returned: ${connection.responseCode}") }
                 return@Thread
             }
@@ -267,7 +273,7 @@ fun checkForUpdates(parent: JFrame, silent: Boolean = false) {
             System.exit(0)
 
         } catch (e: Exception) {
-            e.printStackTrace()
+            Logger.error("Error checking for updates", e)
             if (!silent) SwingUtilities.invokeLater { JOptionPane.showMessageDialog(parent, "Error checking for updates: ${e.message}") }
         }
     }.start()

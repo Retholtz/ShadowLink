@@ -13,7 +13,7 @@ import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.37"
+const val APP_VERSION = "1.39"
 const val GITHUB_REPO = "retholtz/ShadowLink"
 
 var profiles = mutableListOf<Profile>()
@@ -59,9 +59,98 @@ class LayerUI(
 )
 val layerUIs = mutableListOf<LayerUI>()
 
+// --- DUAL STATUS INDICATOR PANEL COMPONENT ---
+class StatusIndicatorsPanel : JPanel() {
+    private val dongleRow: JPanel
+    private val controllerRow: JPanel
+
+    init {
+        isOpaque = false
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+        dongleRow = createSingleIndicatorRow(
+            title = "USB Dongle Status",
+            shortLabel = "USB Dongle:",
+            getStatus = { usbDongleStatus },
+            getDetails = { usbDongleDetails }
+        )
+
+        controllerRow = createSingleIndicatorRow(
+            title = "Controller Link Status",
+            shortLabel = "Controller:",
+            getStatus = { controllerLinkStatus },
+            getDetails = { controllerLinkDetails }
+        )
+
+        add(dongleRow)
+        add(Box.createVerticalStrut(3))
+        add(controllerRow)
+
+        onStatusUpdated = {
+            repaint()
+            dongleRow.toolTipText = formatTooltip("USB Dongle Status", usbDongleStatus, usbDongleDetails)
+            controllerRow.toolTipText = formatTooltip("Controller Link Status", controllerLinkStatus, controllerLinkDetails)
+        }
+    }
+
+    private fun formatTooltip(title: String, status: DeviceStatus, details: String): String {
+        return "<html><b>$title:</b> ${status.label}<br><i>$details</i></html>"
+    }
+
+    private fun createSingleIndicatorRow(
+        title: String,
+        shortLabel: String,
+        getStatus: () -> DeviceStatus,
+        getDetails: () -> String
+    ): JPanel {
+        val row = object : JPanel() {
+            override fun paintComponent(g: Graphics) {
+                super.paintComponent(g)
+                val g2 = g.create() as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+                val status = getStatus()
+                val circleSize = 10
+                val circleX = 2
+                val circleY = (height - circleSize) / 2
+
+                // Glow
+                g2.color = Color(status.color.red, status.color.green, status.color.blue, 70)
+                g2.fillOval(circleX - 2, circleY - 2, circleSize + 4, circleSize + 4)
+
+                // Fill
+                g2.color = status.color
+                g2.fillOval(circleX, circleY, circleSize, circleSize)
+
+                // Highlight
+                g2.color = Color(255, 255, 255, 140)
+                g2.fillOval(circleX + 2, circleY + 2, 3, 3)
+
+                // Border
+                g2.color = status.color.darker()
+                g2.drawOval(circleX, circleY, circleSize, circleSize)
+
+                // Label
+                g2.color = UIManager.getColor("Label.foreground") ?: Color.BLACK
+                g2.font = font.deriveFont(Font.BOLD, 11f)
+                val fm = g2.fontMetrics
+                val textY = (height - fm.height) / 2 + fm.ascent
+                g2.drawString("$shortLabel ${status.label}", circleX + circleSize + 6, textY)
+
+                g2.dispose()
+            }
+        }
+        row.isOpaque = false
+        row.preferredSize = Dimension(175, 16)
+        row.toolTipText = formatTooltip(title, getStatus(), getDetails())
+        return row
+    }
+}
+
 // --- MAIN ENTRY ---
 fun main() {
     System.setProperty("java.awt.headless", "false")
+    Logger.info("Starting ShadowLink v$APP_VERSION...")
 
     loadAllProfiles()
     applyTheme()
@@ -109,6 +198,8 @@ fun createMainUI() {
     val profileRowWrapper = JPanel(BorderLayout())
 
     val profileRowLeft = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5))
+    profileRowLeft.add(StatusIndicatorsPanel())
+    profileRowLeft.add(Box.createHorizontalStrut(5))
     profileCombo = JComboBox(profiles.map { it.name }.toTypedArray())
     profileCombo.preferredSize = Dimension(200, 30)
     profileCombo.selectedItem = activeProfile.name
@@ -247,11 +338,19 @@ fun createMainUI() {
     val autoSwitchBox = JCheckBox("Auto-Switch Enabled", autoSwitchEnabled)
     autoSwitchBox.addActionListener { autoSwitchEnabled = autoSwitchBox.isSelected }
 
+    val minimizedBox = JCheckBox("Start Minimized", startMinimized)
+    minimizedBox.addActionListener { startMinimized = minimizedBox.isSelected }
+
+    val startupBox = JCheckBox("Load on Startup", loadOnStartup)
+    startupBox.addActionListener { loadOnStartup = startupBox.isSelected }
+
     switchRow.add(JLabel("Auto-Switch Executable: "))
     switchRow.add(processField)
     switchRow.add(browseBtn)
     switchRow.add(activeAppsBtn)
     switchRow.add(autoSwitchBox)
+    switchRow.add(minimizedBox)
+    switchRow.add(startupBox)
 
     topPanel.add(profileRowWrapper)
     topPanel.add(switchRow)
@@ -427,14 +526,6 @@ fun createMainUI() {
     val bottomPanel = JPanel(BorderLayout())
     val optionsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 15, 10))
 
-    val minimizedBox = JCheckBox("Start Minimized", startMinimized)
-    minimizedBox.addActionListener { startMinimized = minimizedBox.isSelected }
-    optionsPanel.add(minimizedBox)
-
-    val startupBox = JCheckBox("Load on Startup", loadOnStartup)
-    startupBox.addActionListener { loadOnStartup = startupBox.isSelected }
-    optionsPanel.add(startupBox)
-
     val osdPositions = arrayOf("Bottom Right", "Bottom Left", "Top Right", "Top Left")
     val osdCombo = JComboBox(osdPositions).apply { selectedItem = osdPosition }
     osdCombo.addActionListener { osdPosition = osdCombo.selectedItem as String }
@@ -452,6 +543,11 @@ fun createMainUI() {
     val updateBtn = JButton("Check for Updates")
     updateBtn.addActionListener { checkForUpdates(frame, silent = false) }
     optionsPanel.add(updateBtn)
+
+    val exportLogBtn = JButton("Export Log")
+    exportLogBtn.toolTipText = "Export diagnostic log file for developer support"
+    exportLogBtn.addActionListener { Logger.exportLogs(frame) }
+    optionsPanel.add(exportLogBtn)
 
     bottomPanel.add(optionsPanel, BorderLayout.WEST)
 
