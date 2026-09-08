@@ -11,9 +11,13 @@ import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.file.StandardOpenOption
+import kotlin.system.exitProcess
 
 // --- GLOBAL STATE ---
-const val APP_VERSION = "1.39"
+const val APP_VERSION = "1.40"
 const val GITHUB_REPO = "retholtz/ShadowLink"
 
 var profiles = mutableListOf<Profile>()
@@ -59,6 +63,25 @@ class LayerUI(
 )
 val layerUIs = mutableListOf<LayerUI>()
 
+// --- HELPER FOR MODERN CARD CONTAINERS ---
+fun createCardPanel(title: String? = null): JPanel {
+    val panel = JPanel()
+    panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+    val lineBorder = BorderFactory.createLineBorder(
+        UIManager.getColor("Component.borderColor") ?: Color(70, 70, 75), 1, true
+    )
+    val emptyPadding = BorderFactory.createEmptyBorder(8, 12, 8, 12)
+    if (title != null) {
+        val titleBorder = BorderFactory.createTitledBorder(lineBorder, title)
+        val defaultFont = UIManager.getFont("TitledBorder.font") ?: Font("Segoe UI", Font.BOLD, 13)
+        titleBorder.titleFont = defaultFont.deriveFont(Font.BOLD, 12f)
+        panel.border = BorderFactory.createCompoundBorder(titleBorder, emptyPadding)
+    } else {
+        panel.border = BorderFactory.createCompoundBorder(lineBorder, emptyPadding)
+    }
+    return panel
+}
+
 // --- DUAL STATUS INDICATOR PANEL COMPONENT ---
 class StatusIndicatorsPanel : JPanel() {
     private val dongleRow: JPanel
@@ -67,10 +90,14 @@ class StatusIndicatorsPanel : JPanel() {
     init {
         isOpaque = false
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor") ?: Color(70, 70, 75), 1, true),
+            BorderFactory.createEmptyBorder(4, 8, 4, 8)
+        )
 
         dongleRow = createSingleIndicatorRow(
             title = "USB Dongle Status",
-            shortLabel = "USB Dongle:",
+            shortLabel = "Dongle:",
             getStatus = { usbDongleStatus },
             getDetails = { usbDongleDetails }
         )
@@ -83,7 +110,7 @@ class StatusIndicatorsPanel : JPanel() {
         )
 
         add(dongleRow)
-        add(Box.createVerticalStrut(3))
+        add(Box.createVerticalStrut(4))
         add(controllerRow)
 
         onStatusUpdated = {
@@ -108,25 +135,26 @@ class StatusIndicatorsPanel : JPanel() {
                 super.paintComponent(g)
                 val g2 = g.create() as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
                 val status = getStatus()
                 val circleSize = 10
-                val circleX = 2
+                val circleX = 4
                 val circleY = (height - circleSize) / 2
 
-                // Glow
-                g2.color = Color(status.color.red, status.color.green, status.color.blue, 70)
+                // Outer Glow ring
+                g2.color = Color(status.color.red, status.color.green, status.color.blue, 60)
                 g2.fillOval(circleX - 2, circleY - 2, circleSize + 4, circleSize + 4)
 
-                // Fill
+                // Fill LED
                 g2.color = status.color
                 g2.fillOval(circleX, circleY, circleSize, circleSize)
 
-                // Highlight
-                g2.color = Color(255, 255, 255, 140)
-                g2.fillOval(circleX + 2, circleY + 2, 3, 3)
+                // Highlight specular reflection
+                g2.color = Color(255, 255, 255, 160)
+                g2.fillOval(circleX + 2, circleY + 1, 3, 3)
 
-                // Border
+                // Border ring
                 g2.color = status.color.darker()
                 g2.drawOval(circleX, circleY, circleSize, circleSize)
 
@@ -135,21 +163,83 @@ class StatusIndicatorsPanel : JPanel() {
                 g2.font = font.deriveFont(Font.BOLD, 11f)
                 val fm = g2.fontMetrics
                 val textY = (height - fm.height) / 2 + fm.ascent
-                g2.drawString("$shortLabel ${status.label}", circleX + circleSize + 6, textY)
+                g2.drawString("$shortLabel ${status.label}", circleX + circleSize + 8, textY)
 
                 g2.dispose()
             }
         }
         row.isOpaque = false
-        row.preferredSize = Dimension(175, 16)
+        row.preferredSize = Dimension(175, 18)
         row.toolTipText = formatTooltip(title, getStatus(), getDetails())
         return row
+    }
+}
+
+// --- SINGLE INSTANCE LOCK ---
+private var appLockChannel: FileChannel? = null
+private var appLock: FileLock? = null
+
+fun checkSingleInstance(): Boolean {
+    return try {
+        val lockFile = File(dataDir, "app.lock")
+        val channel = FileChannel.open(
+            lockFile.toPath(),
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE
+        )
+        val lock = channel.tryLock()
+        if (lock != null) {
+            appLockChannel = channel
+            appLock = lock
+            Runtime.getRuntime().addShutdownHook(Thread {
+                try {
+                    lock.release()
+                    channel.close()
+                } catch (_: Exception) {}
+            })
+            true
+        } else {
+            channel.close()
+            false
+        }
+    } catch (e: Exception) {
+        Logger.warn("Single instance lock check failed: ${e.message}")
+        false
+    }
+}
+
+fun tryToFocusExistingWindow() {
+    try {
+        val windowTitle = "ShadowLink - ROG Raikiri II - v$APP_VERSION"
+        val hwnd = User32.INSTANCE.FindWindow(null, windowTitle)
+        if (hwnd != null) {
+            User32.INSTANCE.ShowWindow(hwnd, User32.SW_RESTORE)
+            User32.INSTANCE.SetForegroundWindow(hwnd)
+        }
+    } catch (e: Exception) {
+        Logger.warn("Could not focus existing window: ${e.message}")
     }
 }
 
 // --- MAIN ENTRY ---
 fun main() {
     System.setProperty("java.awt.headless", "false")
+    System.setProperty("awt.useSystemAAFontSettings", "lcd_hrgb")
+    System.setProperty("swing.aatext", "true")
+
+    if (!checkSingleInstance()) {
+        Logger.warn("Another instance of ShadowLink is already running. Exiting.")
+        applyTheme()
+        tryToFocusExistingWindow()
+        JOptionPane.showMessageDialog(
+            null,
+            "ShadowLink is already running.",
+            "ShadowLink",
+            JOptionPane.WARNING_MESSAGE
+        )
+        exitProcess(0)
+    }
+
     Logger.info("Starting ShadowLink v$APP_VERSION...")
 
     loadAllProfiles()
@@ -175,9 +265,25 @@ fun applyTheme() {
         if (isDarkMode) UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarkLaf")
         else UIManager.setLookAndFeel("com.formdev.flatlaf.FlatLightLaf")
 
-        val baseFont = Font("Segoe UI", Font.PLAIN, 14)
+        // FlatLaf Component Geometry & Visual Polish
+        UIManager.put("Button.arc", 12)
+        UIManager.put("Component.arc", 10)
+        UIManager.put("TextComponent.arc", 10)
+        UIManager.put("CheckBox.arc", 6)
+        UIManager.put("ProgressBar.arc", 8)
+        UIManager.put("TabbedPane.showTabSeparators", true)
+        UIManager.put("TabbedPane.tabSeparatorsFullHeight", true)
+        UIManager.put("TabbedPane.hasFullBorder", false)
+        UIManager.put("TabbedPane.tabArc", 12)
+        UIManager.put("ScrollBar.showButtons", false)
+        UIManager.put("ScrollBar.thumbArc", 999)
+        UIManager.put("ScrollBar.thumbInsets", Insets(2, 2, 2, 2))
+        UIManager.put("TextField.padding", Insets(3, 8, 3, 8))
+        UIManager.put("ComboBox.padding", Insets(3, 8, 3, 8))
+
+        val baseFont = Font("Segoe UI", Font.PLAIN, 13)
         UIManager.put("defaultFont", baseFont)
-        UIManager.put("TitledBorder.font", baseFont.deriveFont(Font.BOLD))
+        UIManager.put("TitledBorder.font", baseFont.deriveFont(Font.BOLD, 13f))
     } catch (e: Exception) {
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) } catch (ex: Exception) {}
     }
@@ -187,21 +293,29 @@ fun applyTheme() {
 fun createMainUI() {
     frame = JFrame("ShadowLink - ROG Raikiri II - v$APP_VERSION")
     frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
-    frame.setSize(1250, 850)
+    frame.setSize(1280, 880)
     frame.setLocationRelativeTo(null)
-    frame.layout = BorderLayout(10, 10)
+    frame.layout = BorderLayout(12, 12)
+
+    // Window padding for clean whitespace
+    (frame.contentPane as JComponent).border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
 
     val topPanel = JPanel()
     topPanel.layout = BoxLayout(topPanel, BoxLayout.Y_AXIS)
-    topPanel.border = BorderFactory.createTitledBorder("Profile Management")
 
-    val profileRowWrapper = JPanel(BorderLayout())
+    // --- CARD 1: PROFILE MANAGEMENT ---
+    val profileCard = createCardPanel("Profile Management")
+    val profileRowWrapper = JPanel(BorderLayout(10, 0))
 
-    val profileRowLeft = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5))
+    val profileRowLeft = JPanel(FlowLayout(FlowLayout.LEFT, 8, 4))
     profileRowLeft.add(StatusIndicatorsPanel())
-    profileRowLeft.add(Box.createHorizontalStrut(5))
+    profileRowLeft.add(Box.createHorizontalStrut(6))
+
+    val profileLabel = JLabel("Current Profile: ").apply { font = font.deriveFont(Font.BOLD) }
+    profileRowLeft.add(profileLabel)
+
     profileCombo = JComboBox(profiles.map { it.name }.toTypedArray())
-    profileCombo.preferredSize = Dimension(200, 30)
+    profileCombo.preferredSize = Dimension(180, 30)
     profileCombo.selectedItem = activeProfile.name
     profileCombo.addActionListener {
         val selected = profileCombo.selectedItem as? String ?: return@addActionListener
@@ -210,6 +324,7 @@ fun createMainUI() {
             refreshUI()
         }
     }
+    profileRowLeft.add(profileCombo)
 
     val newBtn = JButton("New Profile")
     newBtn.addActionListener {
@@ -300,8 +415,6 @@ fun createMainUI() {
         }
     }
 
-    profileRowLeft.add(JLabel("Current Profile: "))
-    profileRowLeft.add(profileCombo)
     profileRowLeft.add(newBtn)
     profileRowLeft.add(cloneBtn)
     profileRowLeft.add(deleteBtn)
@@ -309,7 +422,7 @@ fun createMainUI() {
     profileRowLeft.add(exportBtn)
     profileRowWrapper.add(profileRowLeft, BorderLayout.WEST)
 
-    val profileRowRight = JPanel(FlowLayout(FlowLayout.RIGHT, 10, 5))
+    val profileRowRight = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 4))
     val themeToggleBtn = JToggleButton(if (isDarkMode) "Dark Mode" else "Light Mode", isDarkMode)
     themeToggleBtn.addActionListener {
         isDarkMode = themeToggleBtn.isSelected
@@ -319,8 +432,11 @@ fun createMainUI() {
     }
     profileRowRight.add(themeToggleBtn)
     profileRowWrapper.add(profileRowRight, BorderLayout.EAST)
+    profileCard.add(profileRowWrapper)
 
-    val switchRow = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5))
+    // --- CARD 2: AUTO-SWITCHING & APP PREFERENCES ---
+    val switchCard = createCardPanel("Auto-Switching & App Preferences")
+    val switchRow = JPanel(FlowLayout(FlowLayout.LEFT, 10, 4))
     processField = JTextField(activeProfile.targetProcess, 15)
     processField.preferredSize = Dimension(150, 30)
 
@@ -344,16 +460,20 @@ fun createMainUI() {
     val startupBox = JCheckBox("Load on Startup", loadOnStartup)
     startupBox.addActionListener { loadOnStartup = startupBox.isSelected }
 
-    switchRow.add(JLabel("Auto-Switch Executable: "))
+    val processLabel = JLabel("Auto-Switch Executable: ").apply { font = font.deriveFont(Font.BOLD) }
+    switchRow.add(processLabel)
     switchRow.add(processField)
     switchRow.add(browseBtn)
     switchRow.add(activeAppsBtn)
+    switchRow.add(Box.createHorizontalStrut(10))
     switchRow.add(autoSwitchBox)
     switchRow.add(minimizedBox)
     switchRow.add(startupBox)
+    switchCard.add(switchRow)
 
-    topPanel.add(profileRowWrapper)
-    topPanel.add(switchRow)
+    topPanel.add(profileCard)
+    topPanel.add(Box.createVerticalStrut(8))
+    topPanel.add(switchCard)
     frame.add(topPanel, BorderLayout.NORTH)
 
     // --- TABBED PANE FOR LAYERS AND GLOBAL SETTINGS ---
@@ -364,7 +484,8 @@ fun createMainUI() {
     for (i in 0 until 5) {
         val layerPanel = JPanel(BorderLayout())
         val header = JPanel(FlowLayout(FlowLayout.LEFT, 15, 10))
-        header.add(JLabel("Layer Name:"))
+        val layerLabel = JLabel("Layer Name:").apply { font = font.deriveFont(Font.BOLD) }
+        header.add(layerLabel)
 
         val nameField = JTextField(activeProfile.layers[i].name, 15)
         header.add(nameField)
@@ -381,18 +502,17 @@ fun createMainUI() {
         val sectionTabs = JTabbedPane(JTabbedPane.LEFT)
         sectionTabs.font = Font("Segoe UI", Font.BOLD, 13)
 
-        // Wrapper function to tightly pack inputs to the top
         fun wrapInScroll(p: JPanel): JScrollPane {
             val wrapper = JPanel(BorderLayout())
             wrapper.add(p, BorderLayout.NORTH)
             val scroll = JScrollPane(wrapper)
-            scroll.border = BorderFactory.createEmptyBorder(10, 10, 10, 10)
+            scroll.border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
             scroll.verticalScrollBar.unitIncrement = 16
             return scroll
         }
 
-        // --- SECTION 1: Back Paddles / Additional Buttons ---
-        val paddlesPanel = JPanel(GridLayout(6, 1, 5, 5))
+        // SECTION 1: Back Paddles
+        val paddlesPanel = JPanel(GridLayout(6, 1, 6, 6))
         val cmdC = createPaddleRow("Command", activeProfile.layers[i].cmd)
         val libC = createPaddleRow("Library", activeProfile.layers[i].lib)
         val m1C = createPaddleRow("M1 (Bot-L)", activeProfile.layers[i].m1)
@@ -406,8 +526,8 @@ fun createMainUI() {
 
         sectionTabs.addTab(" Back Paddles ", wrapInScroll(paddlesPanel))
 
-        // --- SECTION 2: Paddle Combos ---
-        val combosPanel = JPanel(GridLayout(6, 1, 5, 5))
+        // SECTION 2: Paddle Combos
+        val combosPanel = JPanel(GridLayout(6, 1, 6, 6))
         val m1_m2C = createPaddleRow("M1 + M2", activeProfile.layers[i].m1_m2)
         val m1_m3C = createPaddleRow("M1 + M3", activeProfile.layers[i].m1_m3)
         val m1_m4C = createPaddleRow("M1 + M4", activeProfile.layers[i].m1_m4)
@@ -420,8 +540,8 @@ fun createMainUI() {
 
         sectionTabs.addTab(" Paddle Combos ", wrapInScroll(combosPanel))
 
-        // --- SECTION 3: Triggers, Face & D-Pad ---
-        val standardPanel = JPanel(GridLayout(14, 1, 5, 5))
+        // SECTION 3: Triggers, Face & D-Pad
+        val standardPanel = JPanel(GridLayout(14, 1, 6, 6))
         val lbC = createPaddleRow("LB (Left Bumper)", activeProfile.layers[i].lb)
         val rbC = createPaddleRow("RB (Right Bumper)", activeProfile.layers[i].rb)
         val ltC = createPaddleRow("LT (Left Trigger)", activeProfile.layers[i].lt)
@@ -464,42 +584,46 @@ fun createMainUI() {
         ))
     }
 
-    // Tab 6: Layer Settings & Advanced
+    // --- TAB 6: CONTROLLER & LAYER SETTINGS ---
     val layerSettingsPanel = JPanel()
     layerSettingsPanel.layout = BoxLayout(layerSettingsPanel, BoxLayout.Y_AXIS)
-    layerSettingsPanel.border = BorderFactory.createEmptyBorder(20, 20, 20, 20)
+    layerSettingsPanel.border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
 
-    val toggleInfo = JLabel("<html><b>Profile Layer Toggle Assignment</b><br>Select which buttons will cycle through your enabled layers <b>for this profile</b>. Selecting a Single Button toggle will reserve it globally for this layout, but using a Dual Combo allows both buttons to remain active individually!</html>")
-    toggleInfo.border = BorderFactory.createEmptyBorder(0, 0, 15, 0)
-    layerSettingsPanel.add(toggleInfo)
+    val toggleCard = createCardPanel("Profile Layer Toggle Assignment")
+    val toggleInfo = JLabel("<html>Select which buttons will cycle through your enabled layers <b>for this profile</b>. Selecting a Single Button toggle will reserve it globally for this layout, but using a Dual Combo allows both buttons to remain active individually!</html>")
+    toggleInfo.border = BorderFactory.createEmptyBorder(0, 0, 10, 0)
+    toggleCard.add(toggleInfo)
 
     val toggleOptions = arrayOf("None", "M1", "M2", "M3", "M4", "Command", "Library")
 
     val t1Panel = JPanel(FlowLayout(FlowLayout.LEFT))
-    t1Panel.add(JLabel("Primary Layer Toggle Button:"))
+    t1Panel.add(JLabel("Primary Layer Toggle Button: "))
     t1Combo = JComboBox(toggleOptions).apply { selectedItem = activeProfile.toggleButton1 }
     t1Panel.add(t1Combo)
-    layerSettingsPanel.add(t1Panel)
+    toggleCard.add(t1Panel)
 
     val t2Panel = JPanel(FlowLayout(FlowLayout.LEFT))
-    t2Panel.add(JLabel("Secondary Layer Toggle Button (Optional Double-Input Combo):"))
+    t2Panel.add(JLabel("Secondary Layer Toggle Button (Optional Double-Input Combo): "))
     t2Combo = JComboBox(toggleOptions).apply { selectedItem = activeProfile.toggleButton2 }
     t2Panel.add(t2Combo)
-    layerSettingsPanel.add(t2Panel)
+    toggleCard.add(t2Panel)
 
     t1Combo.addActionListener { refreshLayerLocks() }
     t2Combo.addActionListener { refreshLayerLocks() }
 
-    // Advanced Global Settings Section
-    layerSettingsPanel.add(Box.createRigidArea(Dimension(0, 20)))
-    val advancedInfo = JLabel("<html><b>Advanced Settings</b><br><b>Controller Auto-Detect Rate</b> <i>(Global)</i>: How often the app searches for a new controller (Requires restart).<br><b>Combo Input Delay</b> <i>(Profile)</i>: Adds a tiny buffer allowing you to trigger combos without misfiring single buttons!</html>")
-    advancedInfo.border = BorderFactory.createEmptyBorder(0, 0, 15, 0)
-    layerSettingsPanel.add(advancedInfo)
+    layerSettingsPanel.add(toggleCard)
+    layerSettingsPanel.add(Box.createVerticalStrut(12))
+
+    // Advanced Hardware & Delay Settings Card
+    val advancedCard = createCardPanel("Advanced Hardware Settings")
+    val advancedInfo = JLabel("<html><b>Controller Auto-Detect Rate</b> <i>(Global)</i>: How often the app searches for a new controller.<br><b>Combo Input Delay</b> <i>(Profile)</i>: Adds a tiny buffer allowing you to trigger combos without misfiring single buttons!</html>")
+    advancedInfo.border = BorderFactory.createEmptyBorder(0, 0, 10, 0)
+    advancedCard.add(advancedInfo)
 
     val advancedPanel = JPanel(GridLayout(2, 1, 5, 5))
 
     val scanPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-    scanPanel.add(JLabel("Controller Auto-Detect Rate:"))
+    scanPanel.add(JLabel("Controller Auto-Detect Rate: "))
     val scanMap = mapOf(1000 to "1000 ms (Fastest)", 2000 to "2000 ms (Fast)", 5000 to "5000 ms (Default)", 10000 to "10000 ms (Slow)")
     val scanCombo = JComboBox(scanMap.values.toTypedArray())
     scanCombo.selectedItem = scanMap[controllerScanInterval] ?: scanMap[5000]
@@ -511,20 +635,22 @@ fun createMainUI() {
     advancedPanel.add(scanPanel)
 
     val bufferPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-    bufferPanel.add(JLabel("Combo Input Delay (Microlag Buffer):"))
+    bufferPanel.add(JLabel("Combo Input Delay (Microlag Buffer): "))
     bufferSpinner = JSpinner(SpinnerNumberModel(activeProfile.comboBufferMs, 0, 500, 5))
     bufferPanel.add(bufferSpinner)
     bufferPanel.add(JLabel("ms (0 = Instant/No Buffer, 30 = Recommended)"))
     advancedPanel.add(bufferPanel)
 
-    layerSettingsPanel.add(advancedPanel)
+    advancedCard.add(advancedPanel)
+    layerSettingsPanel.add(advancedCard)
 
     tabbedPane.addTab("Controller/Layer Settings", layerSettingsPanel)
 
     frame.add(tabbedPane, BorderLayout.CENTER)
 
+    // --- BOTTOM ACTION PANEL ---
     val bottomPanel = JPanel(BorderLayout())
-    val optionsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 15, 10))
+    val optionsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 10, 6))
 
     val osdPositions = arrayOf("Bottom Right", "Bottom Left", "Top Right", "Top Left")
     val osdCombo = JComboBox(osdPositions).apply { selectedItem = osdPosition }
@@ -551,8 +677,11 @@ fun createMainUI() {
 
     bottomPanel.add(optionsPanel, BorderLayout.WEST)
 
-    val saveBtn = JButton("Save & Apply Settings")
-    saveBtn.font = Font("Segoe UI", Font.BOLD, 16)
+    val saveBtn = JButton("Save & Apply Settings").apply {
+        font = Font("Segoe UI", Font.BOLD, 14)
+        preferredSize = Dimension(220, 36)
+        putClientProperty("JButton.buttonType", "accent")
+    }
     saveBtn.addActionListener {
         updateActiveProfileFromUI()
         saveProfile(activeProfile)
@@ -612,7 +741,12 @@ class PaddleUIControls(
 }
 
 fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
-    val panel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 5))
+    val panel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 4)).apply {
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor") ?: Color(70, 70, 75), 1, true),
+            BorderFactory.createEmptyBorder(2, 6, 2, 6)
+        )
+    }
 
     val label = JLabel("$name: ")
     label.preferredSize = Dimension(160, 20)
@@ -622,7 +756,7 @@ fun createPaddleRow(name: String, bind: PaddleBind): PaddleUIControls {
     val mac = JCheckBox("Macro", bind.isMacro).apply { margin = Insets(0, 0, 0, 0) }
     val rep = JCheckBox("Repeat", bind.repeatMacro).apply { margin = Insets(0, 0, 0, 0) }
     val stp = JCheckBox("Step", bind.stepThrough).apply { margin = Insets(0, 0, 0, 0) }
-    val txt = JTextField(bind.macroText, 12)
+    val txt = JTextField(bind.macroText, 18).apply { margin = Insets(2, 6, 2, 6) }
 
     val sh = JCheckBox("Shift", bind.shift).apply { margin = Insets(0, 0, 0, 0) }
     val ct = JCheckBox("Ctrl", bind.ctrl).apply { margin = Insets(0, 0, 0, 0) }
